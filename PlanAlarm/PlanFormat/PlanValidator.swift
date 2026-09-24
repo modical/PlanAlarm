@@ -386,15 +386,21 @@ struct PlanValidator {
     }
 
     private func suggestion(for key: String) -> String {
-        let known = Array(libraryFields.keys) + Array(brokenLibraryKeys)
-        let best = known
-            .map { ($0, Self.editDistance($0, key)) }
-            .min { $0.1 < $1.1 || ($0.1 == $1.1 && $0.0 < $1.0) }
-        if let best, best.1 <= max(2, key.count / 3) {
-            return " Did you mean '\(best.0)'?"
+        let known: [String] = (Array(libraryFields.keys) + Array(brokenLibraryKeys)).sorted()
+        var bestKey: String?
+        var bestDistance = Int.max
+        for candidate in known {
+            let distance = Self.editDistance(candidate, key)
+            if distance < bestDistance {
+                bestKey = candidate
+                bestDistance = distance
+            }
+        }
+        if let bestKey, bestDistance <= max(2, key.count / 3) {
+            return " Did you mean '\(bestKey)'?"
         }
         if !known.isEmpty && known.count <= 10 {
-            return " Available keys: \(known.sorted().joined(separator: ", "))."
+            return " Available keys: \(known.joined(separator: ", "))."
         }
         return ""
     }
