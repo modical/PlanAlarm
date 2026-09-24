@@ -97,6 +97,7 @@ jobs:
         run: |
           SUMMARY=$(xcrun xcresulttool get test-results summary --path build/Tests.xcresult)
           echo "$SUMMARY" | jq '{result, totalTestCount, passedTests, failedTests, skippedTests}'
+          echo "$SUMMARY" | jq -r '.testFailures[]? | "::error title=\(.testName)::\(.failureText | gsub("\n"; " "))"'
           TOTAL=$(echo "$SUMMARY" | jq '.totalTestCount')
           echo "Unit tests: $(echo "$SUMMARY" | jq -r '"\(.passedTests)/\(.totalTestCount) passed"')" >> "$GITHUB_STEP_SUMMARY"
           if [ "$TOTAL" = "0" ]; then echo "::error::No unit tests ran."; exit 1; fi
