@@ -407,8 +407,10 @@ struct PlanValidator {
         for i in 1...a.count {
             var current = [i] + Array(repeating: 0, count: b.count)
             for j in 1...b.count {
-                current[j] = min(previous[j] + 1, current[j - 1] + 1,
-                                 previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1))
+                let deletion: Int = previous[j] + 1
+                let insertion: Int = current[j - 1] + 1
+                let substitution: Int = previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1)
+                current[j] = Swift.min(deletion, insertion, substitution)
             }
             previous = current
         }
