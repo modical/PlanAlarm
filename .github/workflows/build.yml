@@ -87,10 +87,19 @@ jobs:
           xcodebuild test \
             -project PlanAlarm.xcodeproj \
             -scheme PlanAlarm \
-            -destination "id=${SIM_UDID}" \
+            -destination "id=${SIM_UDID},arch=arm64" \
             -resultBundlePath build/Tests.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             -quiet
+
+      - name: Test summary
+        if: always() && hashFiles('build/Tests.xcresult/**') != ''
+        run: |
+          SUMMARY=$(xcrun xcresulttool get test-results summary --path build/Tests.xcresult)
+          echo "$SUMMARY" | jq '{result, totalTestCount, passedTests, failedTests, skippedTests}'
+          TOTAL=$(echo "$SUMMARY" | jq '.totalTestCount')
+          echo "Unit tests: $(echo "$SUMMARY" | jq -r '"\(.passedTests)/\(.totalTestCount) passed"')" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$TOTAL" = "0" ]; then echo "::error::No unit tests ran."; exit 1; fi
 
       - name: Upload test results on failure
         if: failure()
