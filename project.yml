@@ -25,6 +25,9 @@ targets:
     platform: iOS
     sources:
       - path: PlanAlarm
+      # The same file as the repo sample, bundled for Settings → "Load Sample Plan".
+      - path: Samples/sample-october.dayplan
+        buildPhase: resources
     settings:
       base:
         # Never change this: reinstalling over the same bundle ID keeps the app's data.

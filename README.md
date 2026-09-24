@@ -3,7 +3,7 @@
 A personal iPhone app that turns a daily plan (gym, stretches, study…) into reminders that ring like
 real alarms: through silent mode and Focus, over and over, until you open the app and read the task.
 
-> Status: **phase 1 (skeleton)**. The app opens to four empty tabs. Features arrive in later phases.
+> Status: **phase 2 (plan files)**. You can load and browse plans; alarms arrive in phase 3.
 
 ## Getting the app (.ipa)
 
@@ -48,6 +48,20 @@ Apps installed with a free Apple ID stop opening after **7 days**. Once a week, 
 - Always use the **same Apple ID**, and **don't delete the app first**: install on top of it. The app keeps
   the same bundle ID (`com.habashi.planalarm`), so your plan and history are kept.
 - In Sideloadly, leave the bundle ID in the advanced options unchanged.
+
+## Loading a plan (.dayplan file)
+
+A plan is a `.dayplan` file (JSON). The format is described in [`docs/PLAN_FORMAT.md`](docs/PLAN_FORMAT.md).
+Give that document to Claude in a chat and ask it to write your plan as a `.dayplan` file.
+
+Three ways to load one. Each shows a preview first, and nothing changes until you tap **Use This Plan**:
+- **Open in PlanAlarm:** tap the `.dayplan` file in Files, WhatsApp, Mail or AirDrop, tap the Share button,
+  and choose **PlanAlarm**.
+- **Import from Files:** in the app, **Settings → Import from Files…** (or the import button on the Plan tab).
+- **Paste:** copy the plan's text, then **Settings → Paste Plan JSON… → Paste from Clipboard → Check**.
+
+To try the app without a real plan, use **Settings → Load Sample Plan** (October 2026).
+Loading a new plan archives the old one (Plan tab → Archived plans). Nothing is deleted.
 
 ## Switching to a paid Apple Developer account / TestFlight (later)
 

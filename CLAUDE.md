@@ -23,12 +23,26 @@ and say exactly what to reply afterwards.
 - `PlanAlarm/Info.plist` — extra Info.plist keys merged with the `INFOPLIST_KEY_*` build settings.
 - `PlanAlarm/App/` — app entry point and root tab view.
 - `PlanAlarm/Features/<Screen>/` — one folder per screen (Today, Plan, History, Settings, …).
-- `PlanAlarm/PlanFormat/` — plan models, parser, validator, day resolution. *(phase 2)*
+- `PlanAlarm/PlanFormat/` — `LocalDate`/`TimeOfDay`/`Weekday`, `Plan` models, `PlanParser` + `PlanValidator`
+  (JSON → located, human-readable errors), `DayResolution` (template + overrides), `UTType.dayplan`.
 - `PlanAlarm/Scheduling/` — all AlarmKit code, behind a single service. *(phase 3)*
-- `PlanAlarm/Persistence/` — SwiftData models and storage. *(phase 2+)*
-- `PlanAlarm/Resources/` — asset catalog, bundled sample plan.
-- `Tests/PlanAlarmTests/` — Swift Testing unit tests (run on a simulator in CI).
-- `Samples/`, `docs/` — sample `.dayplan` and schema docs. *(phase 2)*
+- `PlanAlarm/Persistence/` — SwiftData: `StoredPlan` (raw JSON + metadata; one active, the rest archived,
+  never deleted), `PlanStore` (activate + parsed-plan cache).
+- `PlanAlarm/Features/Import/` — `ImportController` (Open in / Files / paste / sample → preview sheet).
+- `PlanAlarm/Features/TaskDetail/` — `TaskContentView`, the large-type task view (reuse for read-to-dismiss).
+- `PlanAlarm/Resources/` — asset catalog.
+- `Samples/sample-october.dayplan` — sample plan; bundled into the app via `project.yml` (single copy).
+- `docs/PLAN_FORMAT.md` — schema v1 documentation (written for AIs generating plans).
+- `Tests/PlanAlarmTests/` — Swift Testing unit tests (run on a simulator in CI). `SamplePlanTests` reads the
+  repo sample via `#filePath`.
+
+## Conventions
+- Plan dates are `LocalDate` (pure Gregorian day math). Convert to/from `Date` only via `Calendar.plan`
+  (Gregorian, device time zone), so a phone set to another calendar or a DST day doesn't shift dates.
+- Plan interpretation decisions (documented in `docs/PLAN_FORMAT.md`): library entries must be complete tasks;
+  `replace` overrides drop the template's dayNote when they don't give one; `description.summary` and
+  `description.sections` override library values separately; unknown weekday keys are errors (typo guard);
+  `null` = missing; curly quotes in pasted text are repaired with a warning.
 
 ## CI (`.github/workflows/build.yml`)
 Runs on push to `main`, on `v*` tags, and on manual dispatch; skips doc-only changes (`**.md`, `docs/**`).
@@ -45,8 +59,8 @@ On this Windows machine `gh` may not be on PATH in the agent shell; use `"C:\Pro
 
 ## Phased workflow
 After each phase: commit, push, get a green CI run, then summarise what works and what to test on the phone.
-1. **Skeleton + CI** — XcodeGen project, four empty tabs, unsigned IPA from CI. *(done — waiting for the owner to confirm sideload works)*
-2. Plan format — models, parser, validator, day resolution, import (file / Open in / paste), preview, sample plan, `docs/PLAN_FORMAT.md`, tests.
+1. **Skeleton + CI** — XcodeGen project, four empty tabs, unsigned IPA from CI. *(done, sideload confirmed)*
+2. **Plan format** — models, parser, validator, day resolution, import (file / Open in / paste), preview, sample plan, `docs/PLAN_FORMAT.md`, tests. *(in progress)*
 3. AlarmKit core — permissions, wake-up alarm, one test task alarm with stop-rearms / open-task behaviour, hidden debug "fire test alarm in 1 minute".
 4. Morning check-in + scheduling, re-alarm, passed-time handling.
 5. Read-to-dismiss, statuses, follow-up notifications.

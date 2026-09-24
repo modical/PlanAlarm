@@ -1,0 +1,251 @@
+{
+  "schemaVersion": 1,
+  "planName": "October Cut",
+  "startDate": "2026-10-01",
+  "endDate": "2026-10-31",
+  "defaults": {
+    "readSeconds": 30
+  },
+  "taskLibrary": {
+    "morning-stretch": {
+      "title": "Morning stretches",
+      "category": "mobility",
+      "durationMinutes": 10,
+      "readSeconds": 20,
+      "description": {
+        "summary": "Full-body mobility flow. Move slowly and breathe through each position.",
+        "sections": [
+          {
+            "title": "Flow",
+            "items": [
+              "Cat-cow ×10",
+              "World's greatest stretch ×5/side",
+              "Deep squat hold, 45 s",
+              "Thoracic rotations ×8/side",
+              "Hip flexor stretch, 30 s/side"
+            ]
+          }
+        ]
+      }
+    },
+    "weigh-in": {
+      "title": "Morning weigh-in",
+      "category": "nutrition",
+      "durationMinutes": 5,
+      "readSeconds": 10,
+      "description": {
+        "summary": "After the toilet, before food or water. Log the number in the notes app.",
+        "sections": []
+      }
+    },
+    "push-day": {
+      "title": "Gym — Push day",
+      "category": "gym",
+      "durationMinutes": 75,
+      "readSeconds": 60,
+      "description": {
+        "summary": "Chest, shoulders, triceps. Keep rest 90 s on compounds, 60 s on accessories.",
+        "sections": [
+          { "title": "Warm-up", "items": ["5 min incline walk", "Band pull-aparts 2×15", "Empty-bar bench 2×10"] },
+          { "title": "Main", "items": ["Bench press — 4×6–8 @ RPE 8", "Seated DB shoulder press — 3×10", "Incline DB press — 3×10", "Cable fly — 3×12"] },
+          { "title": "Finisher", "items": ["Triceps pushdown — 3×15", "Lateral raise — 3×15"] }
+        ]
+      }
+    },
+    "pull-day": {
+      "title": "Gym — Pull day",
+      "category": "gym",
+      "durationMinutes": 75,
+      "readSeconds": 60,
+      "description": {
+        "summary": "Back and biceps. Control the lowering phase on every rep.",
+        "sections": [
+          { "title": "Warm-up", "items": ["5 min rower", "Scapular pull-ups 2×10"] },
+          { "title": "Main", "items": ["Lat pulldown — 4×8–10 @ RPE 8", "Chest-supported row — 3×10", "Seated cable row — 3×12", "Face pull — 3×15"] },
+          { "title": "Finisher", "items": ["EZ-bar curl — 3×12", "Hammer curl — 2×15"] }
+        ]
+      }
+    },
+    "leg-day": {
+      "title": "Gym — Leg day",
+      "category": "gym",
+      "durationMinutes": 80,
+      "readSeconds": 60,
+      "description": {
+        "summary": "Quads, hamstrings, glutes. Brace hard on squats; stop 1–2 reps before failure.",
+        "sections": [
+          { "title": "Warm-up", "items": ["5 min bike", "Bodyweight squats 2×15", "Leg swings ×10/side"] },
+          { "title": "Main", "items": ["Back squat — 4×6 @ RPE 8", "Romanian deadlift — 3×8", "Leg press — 3×12", "Walking lunges — 2×10/side"] },
+          { "title": "Finisher", "items": ["Seated calf raise — 3×15", "Hanging knee raise — 3×12"] }
+        ]
+      }
+    },
+    "zone2-walk": {
+      "title": "Cardio — Zone 2 walk",
+      "category": "gym",
+      "durationMinutes": 40,
+      "description": {
+        "summary": "Brisk walk or incline treadmill. You should be able to talk in full sentences.",
+        "sections": [
+          { "title": "Target", "items": ["Heart rate 115–130 bpm", "At least 5,000 steps"] }
+        ]
+      }
+    },
+    "evening-stretch": {
+      "title": "Evening stretches",
+      "category": "mobility",
+      "durationMinutes": 15,
+      "description": {
+        "summary": "Slow, relaxing stretches to wind down before bed.",
+        "sections": [
+          { "title": "Flow", "items": ["Child's pose, 60 s", "Pigeon pose, 45 s/side", "Seated forward fold, 60 s", "Supine twist, 30 s/side"] }
+        ]
+      }
+    },
+    "study-deep": {
+      "title": "Study — deep work block",
+      "category": "study",
+      "durationMinutes": 90,
+      "readSeconds": 45,
+      "description": {
+        "summary": "One focused block on the current course module. Phone in another room.",
+        "sections": [
+          { "title": "Before you start", "items": ["Write down the one goal for this block", "Close every unrelated tab"] },
+          { "title": "Session", "items": ["50 min focused work", "10 min break (walk, water)", "30 min practice questions"] },
+          { "title": "After", "items": ["Write 3 bullet points: what you learned", "Add hard questions to the review deck"] }
+        ]
+      }
+    },
+    "study-review": {
+      "title": "Study — spaced-repetition review",
+      "category": "study",
+      "durationMinutes": 30,
+      "description": {
+        "summary": "Clear today's flashcard reviews, then 10 new cards.",
+        "sections": [
+          { "title": "Steps", "items": ["Due reviews first", "10 new cards", "Mark any card you failed twice for tomorrow's deep work"] }
+        ]
+      }
+    },
+    "meal-prep": {
+      "title": "Meal prep for the week",
+      "category": "nutrition",
+      "durationMinutes": 90,
+      "description": {
+        "summary": "Cook lunches for Monday to Thursday. Target ~2,200 kcal/day with 160 g protein.",
+        "sections": [
+          { "title": "Cook", "items": ["1.2 kg chicken breast (oven, 200 °C, 22 min)", "800 g rice (dry weight)", "2 trays of roasted vegetables"] },
+          { "title": "Pack", "items": ["4 boxes: 200 g chicken, 150 g rice, vegetables", "Label each box with the day"] }
+        ]
+      }
+    }
+  },
+  "weeklyTemplate": {
+    "monday": {
+      "dayNote": "Push day. Target ~2,200 kcal.",
+      "tasks": [
+        { "taskRef": "weigh-in", "suggestedTime": "07:15" },
+        { "taskRef": "morning-stretch", "suggestedTime": "07:30" },
+        { "taskRef": "push-day", "suggestedTime": "18:00" },
+        { "taskRef": "study-review", "suggestedTime": "21:30" }
+      ]
+    },
+    "tuesday": {
+      "tasks": [
+        { "taskRef": "morning-stretch", "suggestedTime": "07:30" },
+        { "taskRef": "study-deep", "suggestedTime": "19:00" },
+        { "taskRef": "evening-stretch", "suggestedTime": "22:00" }
+      ]
+    },
+    "wednesday": {
+      "dayNote": "Pull day.",
+      "tasks": [
+        { "taskRef": "morning-stretch", "suggestedTime": "07:30" },
+        { "taskRef": "pull-day", "suggestedTime": "18:00" },
+        { "taskRef": "study-review", "suggestedTime": "21:30" }
+      ]
+    },
+    "thursday": {
+      "dayNote": "Light day. Pick your own time for the study block.",
+      "tasks": [
+        { "taskRef": "morning-stretch", "suggestedTime": "07:30" },
+        { "taskRef": "zone2-walk", "suggestedTime": "18:00" },
+        { "taskRef": "study-deep" }
+      ]
+    },
+    "friday": {
+      "dayNote": "Rest day.",
+      "tasks": []
+    },
+    "saturday": {
+      "dayNote": "Leg day. Eat at maintenance today.",
+      "tasks": [
+        { "taskRef": "morning-stretch", "suggestedTime": "09:00" },
+        { "taskRef": "leg-day", "suggestedTime": "12:00" }
+      ]
+    },
+    "sunday": {
+      "dayNote": "Prep day.",
+      "tasks": [
+        { "taskRef": "weigh-in", "suggestedTime": "08:00" },
+        { "taskRef": "meal-prep", "suggestedTime": "16:00" },
+        { "taskRef": "study-review", "suggestedTime": "21:00" }
+      ]
+    }
+  },
+  "dateOverrides": {
+    "2026-10-06": {
+      "mode": "add",
+      "tasks": [
+        {
+          "title": "Study — PMP-style review",
+          "category": "study",
+          "durationMinutes": 60,
+          "suggestedTime": "21:00",
+          "description": {
+            "summary": "Review notes from last week.",
+            "sections": []
+          }
+        }
+      ]
+    },
+    "2026-10-10": {
+      "mode": "replace",
+      "dayNote": "Travel day — nothing scheduled.",
+      "tasks": []
+    },
+    "2026-10-15": {
+      "mode": "add",
+      "dayNote": "Mid-month check-in: progress photos today.",
+      "tasks": [
+        {
+          "title": "Progress photos",
+          "category": "other",
+          "durationMinutes": 10,
+          "readSeconds": 15,
+          "suggestedTime": "07:45",
+          "description": {
+            "summary": "Front, side and back. Same spot, same lighting and same time as last month.",
+            "sections": []
+          }
+        }
+      ]
+    },
+    "2026-10-31": {
+      "mode": "replace",
+      "dayNote": "Last day of the cut — deload, then plan next month.",
+      "tasks": [
+        { "taskRef": "morning-stretch", "suggestedTime": "09:00" },
+        {
+          "taskRef": "leg-day",
+          "title": "Gym — Light legs (deload)",
+          "durationMinutes": 45,
+          "suggestedTime": "11:00",
+          "description": {
+            "summary": "Half the sets of a normal leg day at about 60% of your working weights. Leave feeling fresh."
+          }
+        }
+      ]
+    }
+  }
+}

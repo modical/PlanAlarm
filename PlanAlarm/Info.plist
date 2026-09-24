@@ -6,5 +6,49 @@
 -->
 <plist version="1.0">
 <dict>
+	<!-- The .dayplan file type (UTF-8 JSON), owned by this app. -->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.habashi.planalarm.dayplan</string>
+			<key>UTTypeDescription</key>
+			<string>PlanAlarm Day Plan</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>dayplan</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/x-dayplan+json</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<!-- Lets Files, AirDrop, WhatsApp and Mail offer "Open in PlanAlarm" for .dayplan files. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>PlanAlarm Day Plan</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.habashi.planalarm.dayplan</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Opened files are copied into the app (Documents/Inbox), then imported. -->
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<false/>
 </dict>
 </plist>
