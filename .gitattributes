@@ -1,0 +1,4 @@
+# Store text with LF endings in the repo (the macOS CI runner expects them).
+* text=auto eol=lf
+*.png binary
+*.ipa binary

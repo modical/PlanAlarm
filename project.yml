@@ -1,0 +1,67 @@
+# XcodeGen spec — the single source of truth for the Xcode project.
+# CI runs `xcodegen generate` to create PlanAlarm.xcodeproj; never commit the generated project.
+name: PlanAlarm
+
+options:
+  bundleIdPrefix: com.habashi
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    # CI overrides this with the GitHub run number so every build is distinct.
+    CURRENT_PROJECT_VERSION: "1"
+    # Signing: CI builds unsigned (CODE_SIGNING_ALLOWED=NO) and Sideloadly re-signs.
+    # For a paid account / TestFlight, set DEVELOPMENT_TEAM to your Team ID (see README).
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  PlanAlarm:
+    type: application
+    platform: iOS
+    sources:
+      - path: PlanAlarm
+    settings:
+      base:
+        # Never change this: reinstalling over the same bundle ID keeps the app's data.
+        PRODUCT_BUNDLE_IDENTIFIER: com.habashi.planalarm
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: PlanAlarm/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: PlanAlarm
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ENABLE_PREVIEWS: YES
+
+  PlanAlarmTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/PlanAlarmTests
+    dependencies:
+      - target: PlanAlarm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.habashi.planalarm.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  PlanAlarm:
+    build:
+      targets:
+        PlanAlarm: all
+        PlanAlarmTests: [test]
+    test:
+      config: Debug
+      targets:
+        - PlanAlarmTests
+    archive:
+      config: Release

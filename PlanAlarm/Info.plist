@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Extra Info.plist keys. Xcode merges these with the keys generated from
+  INFOPLIST_KEY_* build settings in project.yml.
+-->
+<plist version="1.0">
+<dict>
+</dict>
+</plist>

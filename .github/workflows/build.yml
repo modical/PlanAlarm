@@ -1,0 +1,143 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    # Doc-only changes don't need a (slow) macOS build.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".gitattributes"
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  XCODE_VERSION: "26.6"
+  XCODEGEN_VERSION: "2.46.0"
+
+jobs:
+  build:
+    name: Test and build unsigned IPA
+    runs-on: macos-26
+    timeout-minutes: 40
+    permissions:
+      contents: write # needed only to attach the IPA to a Release on tags
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: |
+          XCODE_APP="/Applications/Xcode_${XCODE_VERSION}.app"
+          if [ ! -d "$XCODE_APP" ]; then
+            echo "::error::Xcode ${XCODE_VERSION} is not installed on this runner. Update XCODE_VERSION in .github/workflows/build.yml to one of:"
+            ls -d /Applications/Xcode*.app
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          if ! xcodebuild -showsdks | grep -q "iphoneos26"; then
+            echo "::error::The selected Xcode does not include an iOS 26 SDK."
+            xcodebuild -showsdks
+            exit 1
+          fi
+
+      - name: Cache XcodeGen
+        id: xcodegen-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/xcodegen
+          key: xcodegen-${{ env.XCODEGEN_VERSION }}-${{ runner.arch }}
+
+      - name: Install XcodeGen
+        if: steps.xcodegen-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/xcodegen.zip \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          unzip -q /tmp/xcodegen.zip -d ~
+
+      - name: Generate Xcode project
+        run: |
+          ~/xcodegen/bin/xcodegen --version
+          ~/xcodegen/bin/xcodegen generate
+
+      - name: Pick an iOS 26 simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | jq -r '
+            [.devices | to_entries[]
+              | select(.key | test("SimRuntime\\.iOS-26"))
+              | {runtime: .key, device: (.value[] | select(.name | startswith("iPhone")))}]
+            | sort_by(.runtime) | last | .device.udid // empty')
+          if [ -z "$UDID" ]; then
+            echo "::error::No iOS 26 iPhone simulator is available on this runner."
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Using simulator $UDID"
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project PlanAlarm.xcodeproj \
+            -scheme PlanAlarm \
+            -destination "id=${SIM_UDID}" \
+            -resultBundlePath build/Tests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            -quiet
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: build/Tests.xcresult
+          retention-days: 7
+
+      - name: Archive (Release, unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project PlanAlarm.xcodeproj \
+            -scheme PlanAlarm \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/PlanAlarm.xcarchive \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            -quiet
+
+      - name: Package IPA
+        run: |
+          APP=build/PlanAlarm.xcarchive/Products/Applications/PlanAlarm.app
+          test -d "$APP" || { echo "::error::PlanAlarm.app not found in archive"; exit 1; }
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry PlanAlarm.ipa Payload
+          ls -lh PlanAlarm.ipa
+          echo "### PlanAlarm build ${{ github.run_number }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Download **PlanAlarm-build-${{ github.run_number }}** from the Artifacts section below and sideload \`PlanAlarm.ipa\` with Sideloadly." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: PlanAlarm-build-${{ github.run_number }}
+          path: PlanAlarm.ipa
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Attach IPA to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" PlanAlarm.ipa \
+            --title "PlanAlarm $GITHUB_REF_NAME" --generate-notes
