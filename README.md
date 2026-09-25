@@ -3,7 +3,7 @@
 A personal iPhone app that turns a daily plan (gym, stretches, study…) into reminders that ring like
 real alarms: through silent mode and Focus, over and over, until you open the app and read the task.
 
-> Status: **phase 2 (plan files)**. You can load and browse plans; alarms arrive in phase 3.
+> Status: **phase 3 (alarms)**. Plans load and can be edited; the wake-up alarm and test task alarms work. The morning check-in arrives in phase 4.
 
 ## Getting the app (.ipa)
 
@@ -75,6 +75,21 @@ Loading a new plan archives the old one (Plan tab → Archived plans).
   Deleting a plan never deletes your done/skipped history.
 
 A date you changed on its own keeps its own tasks, even if you later change "every Monday".
+
+## How the alarms behave
+
+- **Wake-up alarm:** Settings → Alarms → Wake-up alarm (default 07:00 every day; change or turn off single days).
+- **Task alarms** ring through silent mode and Focus. They have two buttons:
+  - **Stop:** iOS draws this button itself and its label can't be changed (since iOS 26.1). Pressing it
+    doesn't dismiss the task: the alarm **rings again after the snooze length** (Settings → Alarms → Snooze).
+  - **Open task:** opens PlanAlarm on that task. The alarm still comes back after the snooze length unless
+    you tap **I've Read It** in the app.
+- Whenever you open the app while a task is waiting, it goes straight to that task.
+
+## Known iOS limitations
+
+- The alarm's Stop button (on the lock screen and in the alarm banner) can't be removed or renamed on iOS 26.1+.
+  That's why pressing it re-arms the alarm instead of ending it.
 
 ## Switching to a paid Apple Developer account / TestFlight (later)
 

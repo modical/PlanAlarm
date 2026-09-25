@@ -25,7 +25,13 @@ and say exactly what to reply afterwards.
 - `PlanAlarm/Features/<Screen>/` — one folder per screen (Today, Plan, History, Settings, …).
 - `PlanAlarm/PlanFormat/` — `LocalDate`/`TimeOfDay`/`Weekday`, `Plan` models, `PlanParser` + `PlanValidator`
   (JSON → located, human-readable errors), `DayResolution` (template + overrides), `UTType.dayplan`.
-- `PlanAlarm/Scheduling/` — all AlarmKit code, behind a single service. *(phase 3)*
+- `PlanAlarm/Scheduling/` — **all AlarmKit code** (`@preconcurrency import AlarmKit` only here):
+  `AlarmService` (the single service: permission, wake-up alarms, task alarms, re-arming, debug tools),
+  `AlarmIntents` (LiveActivityIntents for the alarm buttons), `WakeSchedule` (pure logic),
+  `AlarmRegistry` (which AlarmKit alarm IDs belong to what; UserDefaults, since AlarmKit doesn't expose metadata).
+- `PlanAlarm/App/AppRouter.swift` — `presentedTaskKey`: a task pending acknowledgement is shown full screen.
+- `PlanAlarm/Persistence/AppDatabase.swift` — the one `ModelContainer`, shared with App Intents.
+  `AppSettings` (SwiftData, single record): wake-up schedule, snooze length.
 - `PlanAlarm/Persistence/` — SwiftData: `StoredPlan` (raw JSON + metadata; one active, the rest archived,
   never deleted), `PlanStore` (activate + parsed-plan cache).
 - `PlanAlarm/Features/Import/` — `ImportController` (Open in / Files / paste / sample / new plan → sheets).
@@ -50,6 +56,19 @@ and say exactly what to reply afterwards.
   `replace` overrides drop the template's dayNote when they don't give one; `description.summary` and
   `description.sections` override library values separately; unknown weekday keys are errors (typo guard);
   `null` = missing; curly quotes in pasted text are repaired with a warning.
+- AlarmKit facts (checked against Apple's docs, Sep 2026):
+  - `AlarmPresentation.Alert(title:secondaryButton:secondaryButtonBehavior:)` is iOS 26.1+. The `stopButton:`
+    initializer is deprecated in 26.1 ("will no longer be used"): iOS draws its own Stop button. We use
+    `#available(iOS 26.1, *)` and fall back to the stop-label initializer on 26.0 ("Snooze N min").
+  - A widget extension is required only for countdown presentations. We use alert-only alarms and never
+    `secondaryButtonBehavior: .countdown`, so **no extension**. Snooze = our stop intent re-schedules.
+  - `AlarmManager.alarms` is `get throws`; `Alarm` has no metadata, hence `AlarmRegistry`.
+  - Button intents must be `LiveActivityIntent`; they run in the app process. "Open" intents use
+    `supportedModes = .foreground(.immediate)`. `perform()` is nonisolated → hop via `AlarmService.handle…`.
+  - Info.plist needs `NSAlarmKitUsageDescription` (non-empty) or scheduling fails.
+- Task alarm cycle: schedule (fixed date) → Stop ⇒ `SnoozeTaskIntent` re-arms after snooze → "Open task" ⇒
+  opens app, stops alarm, re-arms as a safety net → only in-app acknowledgement cancels. On app activation,
+  `AlarmService.refresh()` re-arms any unacknowledged task whose alarm vanished and restores wake alarms.
 - Plans can be deleted (active or archived). So history (phases 5–6) must **snapshot** task data
   (title, category, times) in its own records and must never depend on a `StoredPlan` still existing.
 
@@ -72,8 +91,10 @@ After each phase: commit, push, get a green CI run, then summarise what works an
 2. **Plan format** — models, parser, validator, day resolution, import (file / Open in / paste), preview, sample plan, `docs/PLAN_FORMAT.md`, tests. *(done in build 7)*
    **2b. Plan editing** (owner request) — add / edit / delete tasks for one date or every week, clear day,
    reset day, new empty plan, delete active/archived plans, share plan as `.dayplan`.
-   *(done in build 9 — waiting for the owner to test phases 2 + 2b on the phone)*
-3. AlarmKit core — permissions, wake-up alarm, one test task alarm with stop-rearms / open-task behaviour, hidden debug "fire test alarm in 1 minute".
+   *(done in build 9)*
+3. **AlarmKit core** — permissions, wake-up alarm, one test task alarm with stop-rearms / open-task behaviour,
+   hidden debug tools (Settings → tap "Build" 7×). *(done in build 11 — waiting for on-device alarm tests;
+   phases 2/2b also not yet confirmed on the phone)*
 4. Morning check-in + scheduling, re-alarm, passed-time handling.
 5. Read-to-dismiss, statuses, follow-up notifications.
 6. History and streaks (+ edge-case tests: rest days, skips, plan changes, DST).
