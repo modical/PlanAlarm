@@ -133,11 +133,26 @@ final class AlarmService {
         authorization = manager.authorizationState
     }
 
-    private func wakeConfiguration(id: UUID, schedule: Alarm.Schedule) -> AlarmManager.AlarmConfiguration<PlanAlarmData> {
-        let alert = AlarmPresentation.Alert(
-            title: "Good morning! Time to plan your day",
-            secondaryButton: AlarmButton(text: "Open", textColor: .white, systemImageName: "sun.max"),
+    /// An alert with a custom secondary button. iOS 26.1+ always draws its own Stop button;
+    /// on iOS 26.0 the stop button still shows `stopLabel`.
+    private func alert(title: LocalizedStringResource, stopLabel: LocalizedStringResource,
+                       secondaryButton: AlarmButton) -> AlarmPresentation.Alert {
+        if #available(iOS 26.1, *) {
+            return AlarmPresentation.Alert(title: title, secondaryButton: secondaryButton, secondaryButtonBehavior: .custom)
+        }
+        return AlarmPresentation.Alert(
+            title: title,
+            stopButton: AlarmButton(text: stopLabel, textColor: .white, systemImageName: "stop.circle"),
+            secondaryButton: secondaryButton,
             secondaryButtonBehavior: .custom
+        )
+    }
+
+    private func wakeConfiguration(id: UUID, schedule: Alarm.Schedule) -> AlarmManager.AlarmConfiguration<PlanAlarmData> {
+        let alert = alert(
+            title: "Good morning! Time to plan your day",
+            stopLabel: "Stop",
+            secondaryButton: AlarmButton(text: "Open", textColor: .white, systemImageName: "sun.max")
         )
         let attributes = AlarmAttributes(
             presentation: AlarmPresentation(alert: alert),
@@ -214,10 +229,10 @@ final class AlarmService {
     }
 
     private func taskConfiguration(title: String, key: String, alarmID: UUID, at date: Date) -> AlarmManager.AlarmConfiguration<PlanAlarmData> {
-        let alert = AlarmPresentation.Alert(
+        let alert = alert(
             title: LocalizedStringResource(stringLiteral: title),
-            secondaryButton: AlarmButton(text: "Open task", textColor: .white, systemImageName: "doc.text"),
-            secondaryButtonBehavior: .custom
+            stopLabel: LocalizedStringResource(stringLiteral: "Snooze \(Int(snoozeInterval / 60)) min"),
+            secondaryButton: AlarmButton(text: "Open task", textColor: .white, systemImageName: "doc.text")
         )
         let attributes = AlarmAttributes(
             presentation: AlarmPresentation(alert: alert),
