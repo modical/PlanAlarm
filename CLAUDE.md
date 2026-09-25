@@ -30,9 +30,12 @@ and say exactly what to reply afterwards.
   never deleted), `PlanStore` (activate + parsed-plan cache).
 - `PlanAlarm/Features/Import/` — `ImportController` (Open in / Files / paste / sample / new plan → sheets).
 - `PlanAlarm/Features/PlanEditing/` — `NewPlanView`, `TaskEditorView` (add a task to one date).
-- `PlanAlarm/PlanFormat/PlanEditing.swift` + `PlanEncoder.swift` — in-app edits (one date only:
-  add task, delete task, clear day) stored as ordinary dateOverrides, then re-encoded to schema-v1 JSON.
-  `PlanStore.update` re-parses before saving, so an unreadable plan is never stored.
+- `PlanAlarm/PlanFormat/PlanEditing.swift` + `PlanEncoder.swift` — in-app edits stored as ordinary
+  weeklyTemplate entries / dateOverrides, then re-encoded to schema-v1 JSON. Scopes: `.thisDate` or
+  `.everyWeek` (add / edit / delete a task), plus clear day and reset day (remove the date's override).
+  A date with its own "replace" override keeps its tasks when the weekly pattern changes (except
+  "add every week" started from that date, which also appends there). `PlanStore.update` re-parses
+  before saving, so an unreadable plan is never stored.
 - `PlanAlarm/Features/TaskDetail/` — `TaskContentView`, the large-type task view (reuse for read-to-dismiss).
 - `PlanAlarm/Resources/` — asset catalog.
 - `Samples/sample-october.dayplan` — sample plan; bundled into the app via `project.yml` (single copy).
@@ -67,8 +70,9 @@ On this Windows machine `gh` may not be on PATH in the agent shell; use `"C:\Pro
 After each phase: commit, push, get a green CI run, then summarise what works and what to test on the phone.
 1. **Skeleton + CI** — XcodeGen project, four empty tabs, unsigned IPA from CI. *(done, sideload confirmed)*
 2. **Plan format** — models, parser, validator, day resolution, import (file / Open in / paste), preview, sample plan, `docs/PLAN_FORMAT.md`, tests. *(done in build 7)*
-   **2b. Plan editing** (owner request) — per-date add/delete/clear, new empty plan, delete active/archived plans,
-   share plan as `.dayplan`. *(done in build 8 — waiting for the owner to test phases 2 + 2b on the phone)*
+   **2b. Plan editing** (owner request) — add / edit / delete tasks for one date or every week, clear day,
+   reset day, new empty plan, delete active/archived plans, share plan as `.dayplan`.
+   *(done in build 9 — waiting for the owner to test phases 2 + 2b on the phone)*
 3. AlarmKit core — permissions, wake-up alarm, one test task alarm with stop-rearms / open-task behaviour, hidden debug "fire test alarm in 1 minute".
 4. Morning check-in + scheduling, re-alarm, passed-time handling.
 5. Read-to-dismiss, statuses, follow-up notifications.

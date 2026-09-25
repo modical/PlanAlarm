@@ -64,15 +64,17 @@ To try the app without a real plan, use **Settings → Load Sample Plan** (Octob
 Loading a new plan archives the old one (Plan tab → Archived plans).
 
 ### Changing a plan in the app
-- **Add a task to one date:** Plan tab → **Add Task** under that day.
-- **Delete a task from one date:** swipe the task left → **Delete**.
+- **Add a task:** Plan tab → **Add Task** under a day, then choose **Only that date** or **Every Monday** (etc.).
+- **Edit or delete a task:** swipe the task left (or long-press it) → **Edit** / **Delete**. Tasks from the
+  weekly pattern ask whether the change is for that date only or every week.
 - **Clear a whole date:** **Clear Day** under that day.
+- **Undo a date's changes:** **Reset** under a changed day brings back the normal weekday.
 - **Start from nothing:** **New Empty Plan…** (Plan tab **⋯** menu, or Settings).
 - **Share the plan (with your edits) as a file:** Plan tab **⋯** → **Share Plan as File…**
 - **Delete plans:** Plan tab **⋯** → **Delete Plan…**, or swipe an archived plan left.
   Deleting a plan never deletes your done/skipped history.
 
-Edits change that one date only; other weeks stay as the plan file says.
+A date you changed on its own keeps its own tasks, even if you later change "every Monday".
 
 ## Switching to a paid Apple Developer account / TestFlight (later)
 
