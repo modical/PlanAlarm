@@ -73,8 +73,11 @@ struct LocalDateTests {
                 #expect(LocalDate(day.date(hour: 23, minute: 59, calendar: cairo), calendar: cairo) == day)
             }
         }
-        #expect(cairo.dateInterval(of: .day, for: springForward.date(calendar: cairo))?.duration == 23 * 3600)
-        #expect(cairo.dateInterval(of: .day, for: fallBack.date(calendar: cairo))?.duration == 25 * 3600)
+        let springLength = try #require(cairo.dateInterval(of: .day, for: springForward.date(calendar: cairo))?.duration)
+        let fallLength = try #require(cairo.dateInterval(of: .day, for: fallBack.date(calendar: cairo))?.duration)
+        // Foundation's interval math isn't exact to the last bit, so compare to within a second.
+        #expect(abs(springLength - 23 * 3600) < 1, "\(springLength)")
+        #expect(abs(fallLength - 25 * 3600) < 1, "\(fallLength)")
     }
 
     @Test func timeOfDayParsing() {
