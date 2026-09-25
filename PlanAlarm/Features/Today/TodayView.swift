@@ -3,11 +3,15 @@ import SwiftUI
 struct TodayView: View {
     var body: some View {
         NavigationStack {
-            ContentUnavailableView(
-                "No plan yet",
-                systemImage: "alarm",
-                description: Text("Your daily tasks and alarms will appear here.")
-            )
+            VStack(spacing: 16) {
+                AlarmPermissionBanner()
+                    .padding(.horizontal)
+                ContentUnavailableView(
+                    "Your day starts here",
+                    systemImage: "alarm",
+                    description: Text("The morning check-in and today's task alarms arrive in the next phase.")
+                )
+            }
             .navigationTitle("Today")
         }
     }

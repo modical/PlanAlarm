@@ -135,7 +135,7 @@ struct LocalDate: Hashable, Comparable, Sendable, CustomStringConvertible {
 }
 
 /// A local wall-clock time, "HH:mm" in 24-hour format.
-struct TimeOfDay: Hashable, Comparable, Sendable, CustomStringConvertible {
+struct TimeOfDay: Hashable, Comparable, Sendable, Codable, CustomStringConvertible {
     let hour: Int
     let minute: Int
 
@@ -167,7 +167,7 @@ struct TimeOfDay: Hashable, Comparable, Sendable, CustomStringConvertible {
 }
 
 /// Days of the week, in the order used by the plan file (Monday first).
-enum Weekday: String, CaseIterable, Sendable {
+enum Weekday: String, CaseIterable, Sendable, Codable {
     case monday, tuesday, wednesday, thursday, friday, saturday, sunday
 
     var displayName: String { rawValue.capitalized }

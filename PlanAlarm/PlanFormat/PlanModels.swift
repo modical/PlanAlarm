@@ -17,7 +17,7 @@ struct Plan: Hashable, Sendable {
 }
 
 /// One task as it appears on a day, with taskRef overrides and readSeconds fallbacks already applied.
-struct PlanTask: Hashable, Sendable {
+struct PlanTask: Hashable, Sendable, Codable {
     /// The taskLibrary key this task came from, if any.
     var taskRef: String?
     var title: String
@@ -29,7 +29,7 @@ struct PlanTask: Hashable, Sendable {
     var suggestedTime: TimeOfDay?
 }
 
-struct TaskSection: Hashable, Sendable {
+struct TaskSection: Hashable, Sendable, Codable {
     var title: String
     var items: [String]
 }

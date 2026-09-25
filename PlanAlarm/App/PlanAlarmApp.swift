@@ -7,6 +7,6 @@ struct PlanAlarmApp: App {
         WindowGroup {
             RootView()
         }
-        .modelContainer(for: StoredPlan.self)
+        .modelContainer(AppDatabase.container)
     }
 }

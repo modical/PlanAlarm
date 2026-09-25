@@ -50,5 +50,11 @@
 	<!-- Opened files are copied into the app (Documents/Inbox), then imported. -->
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
+	<!-- Shown in the alarm permission prompt. AlarmKit refuses to schedule alarms without it. -->
+	<key>NSAlarmKitUsageDescription</key>
+	<string>PlanAlarm rings like an alarm for your wake-up time and for each task in your daily plan, even in silent mode and Focus.</string>
+	<!-- AlarmKit presents alarms as Live Activities. -->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 </dict>
 </plist>
