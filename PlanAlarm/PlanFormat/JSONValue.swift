@@ -2,7 +2,7 @@ import Foundation
 
 /// A loosely-typed JSON tree, so the validator can report friendly, located errors
 /// instead of `Codable`'s generic ones.
-enum JSONValue: Sendable, Equatable, Decodable {
+enum JSONValue: Sendable, Equatable, Codable {
     case null
     case bool(Bool)
     case number(Double)
@@ -26,6 +26,24 @@ enum JSONValue: Sendable, Equatable, Decodable {
             self = .object(value)
         } else {
             throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported JSON value.")
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .null: try container.encodeNil()
+        case .bool(let value): try container.encode(value)
+        case .number(let value):
+            // Write whole numbers without a decimal point ("75", not "75.0").
+            if value.rounded() == value && abs(value) < 1e15 {
+                try container.encode(Int(value))
+            } else {
+                try container.encode(value)
+            }
+        case .string(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
         }
     }
 

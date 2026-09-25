@@ -19,6 +19,14 @@ extension LocalDate {
     var monthDayText: String { formatted(.dateTime.month(.abbreviated).day()) }
 }
 
+extension LocalDate: Identifiable {
+    var id: LocalDate { self }
+}
+
+extension String {
+    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+}
+
 extension Plan {
     var dateRangeText: String {
         if let endDate {

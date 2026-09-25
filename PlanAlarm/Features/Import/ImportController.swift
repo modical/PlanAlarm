@@ -16,11 +16,13 @@ struct PendingImport: Identifiable {
 final class ImportController {
     enum Sheet: Identifiable {
         case paste
+        case newPlan
         case preview(PendingImport)
 
         var id: String {
             switch self {
             case .paste: "paste"
+            case .newPlan: "newPlan"
             case .preview(let pending): pending.id.uuidString
             }
         }
@@ -31,7 +33,7 @@ final class ImportController {
     var sheet: Sheet?
     var isShowingFileImporter = false
     var readError: String?
-    /// Increments after each successful import, so the UI can react (e.g. switch to the Plan tab).
+    /// Increments after each successful import or new plan, so the UI can react (e.g. switch to the Plan tab).
     private(set) var importCount = 0
 
     func showFileImporter() {
@@ -41,6 +43,16 @@ final class ImportController {
 
     func showPaste() {
         sheet = .paste
+    }
+
+    func showNewPlan() {
+        sheet = .newPlan
+    }
+
+    func create(_ plan: Plan, in context: ModelContext) throws {
+        try PlanStore.create(plan, in: context)
+        sheet = nil
+        importCount += 1
     }
 
     func importFile(at url: URL) {

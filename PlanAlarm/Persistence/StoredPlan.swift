@@ -10,6 +10,8 @@ final class StoredPlan {
     /// Where it came from: a file name, "Pasted text" or "Sample plan".
     var sourceName: String = ""
     var importedAt: Date = Date.now
+    /// Last in-app edit, if any.
+    var modifiedAt: Date?
     var isActive: Bool = false
     /// "YYYY-MM-DD"
     var startDate: String = ""

@@ -46,13 +46,14 @@ struct PastePlanView: View {
     }
 }
 
-/// The three ways to bring in a plan, shared by the Plan tab and Settings.
+/// The ways to bring in a plan, shared by the Plan tab and Settings.
 struct ImportPlanButtons: View {
     @Environment(ImportController.self) private var importer
 
     var body: some View {
         Button("Import from Files…", systemImage: "folder") { importer.showFileImporter() }
         Button("Paste Plan JSON…", systemImage: "doc.on.clipboard") { importer.showPaste() }
+        Button("New Empty Plan…", systemImage: "square.and.pencil") { importer.showNewPlan() }
         Button("Load Sample Plan", systemImage: "sparkles") { importer.loadSample() }
     }
 }

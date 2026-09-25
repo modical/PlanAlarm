@@ -42,6 +42,7 @@ struct RootView: View {
         .sheet(item: $importer.sheet) { sheet in
             switch sheet {
             case .paste: PastePlanView()
+            case .newPlan: NewPlanView()
             case .preview(let pending): PlanImportPreviewView(pending: pending)
             }
         }
