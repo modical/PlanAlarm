@@ -60,7 +60,7 @@ On this Windows machine `gh` may not be on PATH in the agent shell; use `"C:\Pro
 ## Phased workflow
 After each phase: commit, push, get a green CI run, then summarise what works and what to test on the phone.
 1. **Skeleton + CI** — XcodeGen project, four empty tabs, unsigned IPA from CI. *(done, sideload confirmed)*
-2. **Plan format** — models, parser, validator, day resolution, import (file / Open in / paste), preview, sample plan, `docs/PLAN_FORMAT.md`, tests. *(in progress)*
+2. **Plan format** — models, parser, validator, day resolution, import (file / Open in / paste), preview, sample plan, `docs/PLAN_FORMAT.md`, tests. *(done in build 7 — waiting for the owner to test on the phone)*
 3. AlarmKit core — permissions, wake-up alarm, one test task alarm with stop-rearms / open-task behaviour, hidden debug "fire test alarm in 1 minute".
 4. Morning check-in + scheduling, re-alarm, passed-time handling.
 5. Read-to-dismiss, statuses, follow-up notifications.
