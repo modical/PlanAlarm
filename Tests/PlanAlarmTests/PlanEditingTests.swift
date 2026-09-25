@@ -132,6 +132,112 @@ struct PlanEditingTests {
         #expect(try roundTrip(plan) == plan)
     }
 
+    // MARK: Where tasks come from
+
+    @Test func taskSources() throws {
+        let plan = try briefPlan()
+        #expect(plan.source(ofTaskAt: 1, on: date("2026-10-05")) == .weeklyPattern(index: 1)) // plain Monday
+        #expect(plan.source(ofTaskAt: 0, on: date("2026-10-06")) == .thisDateOnly(index: 0))  // added study task
+        #expect(plan.source(ofTaskAt: 0, on: date("2026-10-10")) == nil)                      // travel day is empty
+        #expect(plan.source(ofTaskAt: 2, on: date("2026-10-05")) == nil)
+
+        var withAdd = plan
+        try withAdd.addTask(task("Walk"), on: date("2026-10-05"))
+        #expect(withAdd.source(ofTaskAt: 1, on: date("2026-10-05")) == .weeklyPattern(index: 1))
+        #expect(withAdd.source(ofTaskAt: 2, on: date("2026-10-05")) == .thisDateOnly(index: 0))
+    }
+
+    // MARK: Every week
+
+    @Test func addingEveryWeekChangesAllMatchingWeekdays() throws {
+        var plan = try briefPlan()
+        try plan.addTask(task("Walk", at: "20:00"), on: date("2026-10-05"), scope: .everyWeek)
+        for monday in ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"] {
+            #expect(plan.day(on: date(monday)).tasks.map(\.title).last == "Walk", "\(monday)")
+        }
+        #expect(plan.day(on: date("2026-10-05")).overrideMode == nil) // no per-date copy needed
+        #expect(try roundTrip(plan) == plan)
+    }
+
+    @Test func addingEveryWeekToAnEmptyWeekday() throws {
+        var plan = try briefPlan()
+        try plan.addTask(task("Swim"), on: date("2026-10-08"), scope: .everyWeek) // Thursday: template is empty
+        #expect(plan.day(on: date("2026-10-15")).tasks.map(\.title) == ["Swim"])
+        #expect(plan.day(on: date("2026-10-06")).tasks.map(\.title) == ["Study — PMP-style review"]) // Tuesday unchanged
+    }
+
+    @Test func addingEveryWeekFromAChangedDateAlsoShowsOnThatDate() throws {
+        var plan = try briefPlan()
+        try plan.addTask(task("Stretch"), on: date("2026-10-10"), scope: .everyWeek) // Saturday "replace" travel day
+        #expect(plan.day(on: date("2026-10-10")).tasks.map(\.title) == ["Stretch"])
+        #expect(plan.day(on: date("2026-10-17")).tasks.map(\.title) == ["Stretch"])
+    }
+
+    @Test func deletingEveryWeekLeavesIndividuallyChangedDates() throws {
+        var plan = try briefPlan()
+        try plan.deleteTask(at: 1, on: date("2026-10-12"), scope: .thisDate) // Oct 12 gets its own copy
+        try plan.deleteTask(at: 0, on: date("2026-10-05"), scope: .everyWeek) // stretches off every Monday
+        #expect(plan.day(on: date("2026-10-05")).tasks.map(\.title) == ["Gym — Push day"])
+        #expect(plan.day(on: date("2026-10-19")).tasks.map(\.title) == ["Gym — Push day"])
+        #expect(plan.day(on: date("2026-10-12")).tasks.map(\.title) == ["Morning stretches"]) // kept its own list
+        #expect(try roundTrip(plan) == plan)
+    }
+
+    @Test func everyWeekNeedsAWeeklyPatternTask() throws {
+        var plan = try briefPlan()
+        #expect(throws: PlanEditError.notInWeeklyPattern) {
+            try plan.deleteTask(at: 0, on: date("2026-10-06"), scope: .everyWeek)
+        }
+    }
+
+    // MARK: Editing
+
+    @Test func editingThisDateOnly() throws {
+        var plan = try briefPlan()
+        var edited = try #require(plan.day(on: date("2026-10-05")).tasks.last)
+        edited.suggestedTime = TimeOfDay(string: "19:30")
+        edited.taskRef = nil
+        try plan.replaceTask(at: 1, on: date("2026-10-05"), with: edited, scope: .thisDate)
+        #expect(plan.day(on: date("2026-10-05")).tasks.last?.suggestedTime?.description == "19:30")
+        #expect(plan.day(on: date("2026-10-12")).tasks.last?.suggestedTime?.description == "18:00")
+        #expect(try roundTrip(plan) == plan)
+    }
+
+    @Test func editingEveryWeek() throws {
+        var plan = try briefPlan()
+        try plan.replaceTask(at: 1, on: date("2026-10-05"), with: task("Gym — Upper body", at: "17:00"), scope: .everyWeek)
+        for monday in ["2026-10-05", "2026-10-12", "2026-10-26"] {
+            #expect(plan.day(on: date(monday)).tasks.last?.title == "Gym — Upper body", "\(monday)")
+        }
+        #expect(plan.day(on: date("2026-10-05")).overrideMode == nil)
+        #expect(try roundTrip(plan) == plan)
+    }
+
+    @Test func editingATaskAddedToOneDateKeepsTheWeeklyPatternLive() throws {
+        var plan = try briefPlan()
+        try plan.replaceTask(at: 0, on: date("2026-10-06"), with: task("Study — mock exam", at: "20:00"))
+        let tuesday = plan.day(on: date("2026-10-06"))
+        #expect(tuesday.overrideMode == .add) // still an "add" override, not a frozen copy
+        #expect(tuesday.tasks.map(\.title) == ["Study — mock exam"])
+    }
+
+    // MARK: Reset
+
+    @Test func resetBringsBackTheNormalDay() throws {
+        var plan = try briefPlan()
+        try plan.clearDay(date("2026-10-05"))
+        try plan.resetDay(date("2026-10-05"))
+        #expect(plan.day(on: date("2026-10-05")).tasks.count == 2)
+        #expect(plan.day(on: date("2026-10-05")).overrideMode == nil)
+
+        try plan.resetDay(date("2026-10-10")) // override from the plan file itself
+        #expect(plan.day(on: date("2026-10-10")).dayNote == nil)
+        #expect(throws: PlanEditError.nothingToReset) {
+            try plan.resetDay(date("2026-10-12"))
+        }
+        #expect(try roundTrip(plan) == plan)
+    }
+
     @Test func editsKeepLibraryTaskDetails() throws {
         var plan = try samplePlan()
         try plan.deleteTask(at: 0, on: date("2026-10-31")) // leaves the deload leg day (a taskRef with overrides)

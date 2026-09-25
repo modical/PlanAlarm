@@ -12,9 +12,18 @@ struct PlanWeekBrowser: View {
 
     @Environment(\.modelContext) private var modelContext
     @State private var weekStart: LocalDate
-    @State private var addingTaskOn: LocalDate?
+    @State private var editRequest: TaskEditRequest?
+    @State private var pendingDelete: PendingDelete?
     @State private var clearingDay: LocalDate?
+    @State private var resettingDay: LocalDate?
     @State private var editError: String?
+
+    /// A delete that needs a "this date or every week" answer.
+    private struct PendingDelete {
+        let date: LocalDate
+        let index: Int
+        let title: String
+    }
     private let today = LocalDate.today()
     private let firstWeekday = Calendar.plan.firstWeekday
 
@@ -55,7 +64,7 @@ struct PlanWeekBrowser: View {
                 weekNavigator
             } footer: {
                 if isEditable {
-                    Text("Changes apply to one date only. Swipe left on a task to delete it.")
+                    Text("Swipe left on a task (or long-press it) to edit or delete it.")
                 }
             }
 
@@ -77,10 +86,41 @@ struct PlanWeekBrowser: View {
                 }
             }
         }
-        .sheet(item: $addingTaskOn) { date in
-            TaskEditorView(date: date, plan: plan) { task in
-                edit { try $0.addTask(task, on: date) }
+        .sheet(item: $editRequest) { request in
+            TaskEditorView(request: request, plan: plan) { task, scope in
+                if let index = request.index {
+                    edit { try $0.replaceTask(at: index, on: request.date, with: task, scope: scope) }
+                } else {
+                    edit { try $0.addTask(task, on: request.date, scope: scope) }
+                }
             }
+        }
+        .confirmationDialog(
+            "Delete “\(pendingDelete?.title ?? "")”?",
+            isPresented: .init(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingDelete
+        ) { pending in
+            Button("Only on \(pending.date.shortText)", role: .destructive) {
+                edit { try $0.deleteTask(at: pending.index, on: pending.date, scope: .thisDate) }
+            }
+            Button("Every \(pending.date.weekday.displayName)", role: .destructive) {
+                edit { try $0.deleteTask(at: pending.index, on: pending.date, scope: .everyWeek) }
+            }
+        } message: { pending in
+            Text("“Every \(pending.date.weekday.displayName)” doesn't change dates you edited one by one.")
+        }
+        .confirmationDialog(
+            "Reset this day?",
+            isPresented: .init(get: { resettingDay != nil }, set: { if !$0 { resettingDay = nil } }),
+            titleVisibility: .visible,
+            presenting: resettingDay
+        ) { date in
+            Button("Reset to Normal \(date.weekday.displayName)", role: .destructive) {
+                edit { try $0.resetDay(date) }
+            }
+        } message: { date in
+            Text("\(date.longText) will show the normal \(date.weekday.displayName) tasks again. All changes to this date are removed, including ones from the plan file.")
         }
         .confirmationDialog(
             "Clear this day?",
@@ -122,18 +162,26 @@ struct PlanWeekBrowser: View {
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 if isEditable {
-                    Button("Delete", systemImage: "trash", role: .destructive) {
-                        edit { try $0.deleteTask(at: index, on: day.date) }
-                    }
+                    taskActions(task: task, index: index, date: day.date)
+                }
+            }
+            .contextMenu {
+                if isEditable {
+                    taskActions(task: task, index: index, date: day.date)
                 }
             }
         }
         if isEditable && day.isInPlan {
-            HStack {
+            HStack(spacing: 16) {
                 Button("Add Task", systemImage: "plus.circle") {
-                    addingTaskOn = day.date
+                    editRequest = .add(on: day.date)
                 }
                 Spacer()
+                if day.overrideMode != nil {
+                    Button("Reset", systemImage: "arrow.uturn.backward.circle") {
+                        resettingDay = day.date
+                    }
+                }
                 if !day.tasks.isEmpty {
                     Button("Clear Day", systemImage: "xmark.circle", role: .destructive) {
                         clearingDay = day.date
@@ -144,6 +192,25 @@ struct PlanWeekBrowser: View {
             .buttonStyle(.borderless)
             .font(.subheadline)
         }
+    }
+
+    @ViewBuilder
+    private func taskActions(task: PlanTask, index: Int, date: LocalDate) -> some View {
+        let fromWeeklyPattern: Bool = {
+            if case .weeklyPattern = plan.source(ofTaskAt: index, on: date) { return true }
+            return false
+        }()
+        Button("Delete", systemImage: "trash", role: .destructive) {
+            if fromWeeklyPattern {
+                pendingDelete = PendingDelete(date: date, index: index, title: task.title)
+            } else {
+                edit { try $0.deleteTask(at: index, on: date, scope: .thisDate) }
+            }
+        }
+        Button("Edit", systemImage: "pencil") {
+            editRequest = TaskEditRequest(date: date, index: index, existing: task, allowsEveryWeek: fromWeeklyPattern)
+        }
+        .tint(.blue)
     }
 
     private func edit(_ change: (inout Plan) throws -> Void) {

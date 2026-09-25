@@ -1,14 +1,30 @@
 import SwiftUI
 
-/// Adds a task to one date. Can start from a task in the plan's library; the result is saved
-/// as a complete inline task, so later library changes don't alter it.
-struct TaskEditorView: View {
+/// What the editor sheet is doing: adding a task to a date, or editing the task at `index`.
+struct TaskEditRequest: Identifiable {
+    let id = UUID()
     let date: LocalDate
+    /// The task's position on the date when editing; nil when adding.
+    let index: Int?
+    let existing: PlanTask?
+    /// Whether "every week" is offered (adding, or editing a task from the weekly pattern).
+    let allowsEveryWeek: Bool
+
+    static func add(on date: LocalDate) -> TaskEditRequest {
+        TaskEditRequest(date: date, index: nil, existing: nil, allowsEveryWeek: true)
+    }
+}
+
+/// Adds or edits a task for one date or for every week. Tasks are saved as complete inline
+/// tasks, so later library changes don't alter them.
+struct TaskEditorView: View {
+    let request: TaskEditRequest
     let plan: Plan
-    let onSave: (PlanTask) -> Void
+    let onSave: (PlanTask, EditScope) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
+    @State private var scope: EditScope = .thisDate
     @State private var libraryKey: String?
     @State private var title = ""
     @State private var category = ""
@@ -26,13 +42,16 @@ struct TaskEditorView: View {
         var itemsText = ""
     }
 
-    init(date: LocalDate, plan: Plan, onSave: @escaping (PlanTask) -> Void) {
-        self.date = date
+    init(request: TaskEditRequest, plan: Plan, onSave: @escaping (PlanTask, EditScope) -> Void) {
+        self.request = request
         self.plan = plan
         self.onSave = onSave
         _readSeconds = State(initialValue: plan.defaultReadSeconds)
-        _time = State(initialValue: date.date(hour: 9, minute: 0))
+        _time = State(initialValue: request.date.date(hour: 9, minute: 0))
     }
+
+    private var isEditing: Bool { request.existing != nil }
+    private var date: LocalDate { request.date }
 
     private var categorySuggestions: [String] {
         let fromPlan = plan.library.values.map(\.category)
@@ -43,13 +62,30 @@ struct TaskEditorView: View {
         !title.trimmed.isEmpty && !category.trimmed.isEmpty
     }
 
+    private var scopeNote: String {
+        switch scope {
+        case .thisDate:
+            "Only \(date.longText) changes."
+        case .everyWeek:
+            "Every \(date.weekday.displayName) in the plan changes, except dates you changed one by one."
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    Text("For \(date.longText) only. Other days don't change.")
+                    if request.allowsEveryWeek {
+                        Picker("Applies to", selection: $scope) {
+                            Text("Only \(date.shortText)").tag(EditScope.thisDate)
+                            Text("Every \(date.weekday.displayName)").tag(EditScope.everyWeek)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    Text(scopeNote)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
-                    if !plan.library.isEmpty {
+                    if !isEditing && !plan.library.isEmpty {
                         Picker("Start from", selection: $libraryKey) {
                             Text("New task").tag(String?.none)
                             ForEach(plan.library.keys.sorted(), id: \.self) { key in
@@ -111,25 +147,27 @@ struct TaskEditorView: View {
                 }
             }
             .environment(\.calendar, .plan)
-            .navigationTitle("Add Task")
+            .navigationTitle(isEditing ? "Edit Task" : "Add Task")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") { save() }
+                    Button(isEditing ? "Save" : "Add") { save() }
                         .disabled(!canSave)
                 }
             }
+            .onAppear {
+                if let existing = request.existing { fill(from: existing) }
+            }
             .onChange(of: libraryKey) {
-                fillFromLibrary()
+                if let libraryKey, let task = plan.library[libraryKey] { fill(from: task) }
             }
         }
     }
 
-    private func fillFromLibrary() {
-        guard let libraryKey, let task = plan.library[libraryKey] else { return }
+    private func fill(from task: PlanTask) {
         title = task.title
         category = task.category
         hasTime = task.suggestedTime != nil
@@ -164,7 +202,7 @@ struct TaskEditorView: View {
             readSeconds: readSeconds,
             suggestedTime: hasTime ? TimeOfDay(hour: parts.hour ?? 9, minute: parts.minute ?? 0) : nil
         )
-        onSave(task)
+        onSave(task, request.allowsEveryWeek ? scope : .thisDate)
         dismiss()
     }
 }
