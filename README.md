@@ -61,7 +61,18 @@ Three ways to load one. Each shows a preview first, and nothing changes until yo
 - **Paste:** copy the plan's text, then **Settings → Paste Plan JSON… → Paste from Clipboard → Check**.
 
 To try the app without a real plan, use **Settings → Load Sample Plan** (October 2026).
-Loading a new plan archives the old one (Plan tab → Archived plans). Nothing is deleted.
+Loading a new plan archives the old one (Plan tab → Archived plans).
+
+### Changing a plan in the app
+- **Add a task to one date:** Plan tab → **Add Task** under that day.
+- **Delete a task from one date:** swipe the task left → **Delete**.
+- **Clear a whole date:** **Clear Day** under that day.
+- **Start from nothing:** **New Empty Plan…** (Plan tab **⋯** menu, or Settings).
+- **Share the plan (with your edits) as a file:** Plan tab **⋯** → **Share Plan as File…**
+- **Delete plans:** Plan tab **⋯** → **Delete Plan…**, or swipe an archived plan left.
+  Deleting a plan never deletes your done/skipped history.
+
+Edits change that one date only; other weeks stay as the plan file says.
 
 ## Switching to a paid Apple Developer account / TestFlight (later)
 

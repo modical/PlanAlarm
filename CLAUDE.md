@@ -28,7 +28,11 @@ and say exactly what to reply afterwards.
 - `PlanAlarm/Scheduling/` — all AlarmKit code, behind a single service. *(phase 3)*
 - `PlanAlarm/Persistence/` — SwiftData: `StoredPlan` (raw JSON + metadata; one active, the rest archived,
   never deleted), `PlanStore` (activate + parsed-plan cache).
-- `PlanAlarm/Features/Import/` — `ImportController` (Open in / Files / paste / sample → preview sheet).
+- `PlanAlarm/Features/Import/` — `ImportController` (Open in / Files / paste / sample / new plan → sheets).
+- `PlanAlarm/Features/PlanEditing/` — `NewPlanView`, `TaskEditorView` (add a task to one date).
+- `PlanAlarm/PlanFormat/PlanEditing.swift` + `PlanEncoder.swift` — in-app edits (one date only:
+  add task, delete task, clear day) stored as ordinary dateOverrides, then re-encoded to schema-v1 JSON.
+  `PlanStore.update` re-parses before saving, so an unreadable plan is never stored.
 - `PlanAlarm/Features/TaskDetail/` — `TaskContentView`, the large-type task view (reuse for read-to-dismiss).
 - `PlanAlarm/Resources/` — asset catalog.
 - `Samples/sample-october.dayplan` — sample plan; bundled into the app via `project.yml` (single copy).
@@ -43,6 +47,8 @@ and say exactly what to reply afterwards.
   `replace` overrides drop the template's dayNote when they don't give one; `description.summary` and
   `description.sections` override library values separately; unknown weekday keys are errors (typo guard);
   `null` = missing; curly quotes in pasted text are repaired with a warning.
+- Plans can be deleted (active or archived). So history (phases 5–6) must **snapshot** task data
+  (title, category, times) in its own records and must never depend on a `StoredPlan` still existing.
 
 ## CI (`.github/workflows/build.yml`)
 Runs on push to `main`, on `v*` tags, and on manual dispatch; skips doc-only changes (`**.md`, `docs/**`).
@@ -60,7 +66,9 @@ On this Windows machine `gh` may not be on PATH in the agent shell; use `"C:\Pro
 ## Phased workflow
 After each phase: commit, push, get a green CI run, then summarise what works and what to test on the phone.
 1. **Skeleton + CI** — XcodeGen project, four empty tabs, unsigned IPA from CI. *(done, sideload confirmed)*
-2. **Plan format** — models, parser, validator, day resolution, import (file / Open in / paste), preview, sample plan, `docs/PLAN_FORMAT.md`, tests. *(done in build 7 — waiting for the owner to test on the phone)*
+2. **Plan format** — models, parser, validator, day resolution, import (file / Open in / paste), preview, sample plan, `docs/PLAN_FORMAT.md`, tests. *(done in build 7)*
+   **2b. Plan editing** (owner request) — per-date add/delete/clear, new empty plan, delete active/archived plans,
+   share plan as `.dayplan`. *(done in build 8 — waiting for the owner to test phases 2 + 2b on the phone)*
 3. AlarmKit core — permissions, wake-up alarm, one test task alarm with stop-rearms / open-task behaviour, hidden debug "fire test alarm in 1 minute".
 4. Morning check-in + scheduling, re-alarm, passed-time handling.
 5. Read-to-dismiss, statuses, follow-up notifications.
