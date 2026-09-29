@@ -10,8 +10,24 @@ final class AppSettings {
     /// JSON-encoded `[WakeDayRule]` per weekday (see `wakeSchedule`).
     var wakeDayRulesJSON: Data = Data()
     var snoozeMinutes: Int = 5
+    /// How long a task must be on screen before its Stop Alarm button unlocks
+    /// (a task's own readSeconds in the plan file wins).
+    var stopUnlockSeconds: Int = 30
+    /// `AlarmTone` raw values.
+    var taskToneID: String = AlarmTone.system.rawValue
+    var wakeToneID: String = AlarmTone.system.rawValue
 
     init() {}
+
+    var taskTone: AlarmTone {
+        get { AlarmTone(rawValue: taskToneID) ?? .system }
+        set { taskToneID = newValue.rawValue }
+    }
+
+    var wakeTone: AlarmTone {
+        get { AlarmTone(rawValue: wakeToneID) ?? .system }
+        set { wakeToneID = newValue.rawValue }
+    }
 
     /// The wake-up alarm settings as a value type.
     var wakeSchedule: WakeSchedule {

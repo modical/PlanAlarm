@@ -1,22 +1,28 @@
 import SwiftData
 import SwiftUI
 
-/// Browses a plan one week at a time. Days changed by a dateOverride are marked.
-/// When `stored` is set (the active plan), days can be edited: add a task, swipe to delete, clear the day.
+/// Browses days one week at a time. Days changed by a dateOverride are marked.
+///
+/// When editable (the active plan, or no plan at all), every day can be edited: inside the plan's dates
+/// edits go into the plan; outside them (or with no plan) tasks are kept in the app as `ExtraTask`s.
 struct PlanWeekBrowser: View {
-    let plan: Plan
-    /// The record to save edits to; nil makes the browser read-only (archived plans).
+    let plan: Plan?
+    /// The record that plan edits are saved to (the active plan).
     var stored: StoredPlan?
-    /// When set, shows a link to archived plans (only for the active plan).
+    var isEditable: Bool
+    /// When set, shows a link to archived plans.
     var archivedCount: Int?
 
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \ExtraTask.createdAt) private var allExtras: [ExtraTask]
     @State private var weekStart: LocalDate
     @State private var editRequest: TaskEditRequest?
     @State private var pendingDelete: PendingDelete?
     @State private var clearingDay: LocalDate?
     @State private var resettingDay: LocalDate?
     @State private var editError: String?
+    private let today = LocalDate.today()
+    private let firstWeekday = Calendar.plan.firstWeekday
 
     /// A delete that needs a "this date or every week" answer.
     private struct PendingDelete {
@@ -24,39 +30,50 @@ struct PlanWeekBrowser: View {
         let index: Int
         let title: String
     }
-    private let today = LocalDate.today()
-    private let firstWeekday = Calendar.plan.firstWeekday
 
-    init(plan: Plan, stored: StoredPlan? = nil, archivedCount: Int? = nil) {
+    init(plan: Plan?, stored: StoredPlan? = nil, isEditable: Bool, archivedCount: Int? = nil) {
         self.plan = plan
         self.stored = stored
+        self.isEditable = isEditable
         self.archivedCount = archivedCount
         let today = LocalDate.today()
-        let anchor: LocalDate
-        if today < plan.startDate {
-            anchor = plan.startDate
-        } else if let end = plan.endDate, today > end {
-            anchor = end
-        } else {
-            anchor = today
+        var anchor = today
+        if let plan, !isEditable {
+            // Archived plans open on their own dates.
+            if today < plan.startDate {
+                anchor = plan.startDate
+            } else if let end = plan.endDate, today > end {
+                anchor = end
+            }
         }
         _weekStart = State(initialValue: anchor.startOfWeek(firstWeekday: Calendar.plan.firstWeekday))
     }
 
-    private var isEditable: Bool { stored != nil }
-    private var weekDays: [ResolvedDay] { plan.days(from: weekStart, count: 7) }
-    private var canGoBack: Bool { weekStart > plan.startDate.startOfWeek(firstWeekday: firstWeekday) }
-    private var canGoForward: Bool { plan.endDate.map { weekStart.adding(days: 7) <= $0 } ?? true }
+    private var extras: [ExtraTask] { isEditable ? allExtras : [] }
+    private var weekAgendas: [DayAgenda] {
+        (0..<7).map { DayAgenda(date: weekStart.adding(days: $0), plan: plan, extras: extras) }
+    }
     private var todayWeekStart: LocalDate { today.startOfWeek(firstWeekday: firstWeekday) }
+
+    /// Whether edits on this date go into the plan (rather than into the app's extra tasks).
+    private func editsGoIntoPlan(on date: LocalDate) -> Bool {
+        stored != nil && (plan?.contains(date) ?? false)
+    }
 
     var body: some View {
         List {
             Section {
-                LabeledContent("Dates", value: plan.dateRangeText)
-                LabeledContent("Tasks", value: plan.taskCountText)
-                if let note = plan.timingNote(today: today) {
-                    Label(note, systemImage: "info.circle")
+                if let plan {
+                    LabeledContent("Dates", value: plan.dateRangeText)
+                    LabeledContent("Tasks", value: plan.taskCountText)
+                    if let note = plan.timingNote(today: today) {
+                        Label(note, systemImage: "info.circle")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("No plan loaded. You can still add tasks to any day, or bring in a plan:")
                         .foregroundStyle(.secondary)
+                    ImportPlanButtons()
                 }
             }
 
@@ -68,11 +85,11 @@ struct PlanWeekBrowser: View {
                 }
             }
 
-            ForEach(weekDays) { day in
+            ForEach(weekAgendas) { agenda in
                 Section {
-                    daySection(day)
+                    daySection(agenda)
                 } header: {
-                    DayHeader(day: day, isToday: day.date == today)
+                    DayHeader(day: agenda.day, isToday: agenda.day.date == today)
                 }
             }
 
@@ -88,11 +105,7 @@ struct PlanWeekBrowser: View {
         }
         .sheet(item: $editRequest) { request in
             TaskEditorView(request: request, plan: plan) { task, scope in
-                if let index = request.index {
-                    edit { try $0.replaceTask(at: index, on: request.date, with: task, scope: scope) }
-                } else {
-                    edit { try $0.addTask(task, on: request.date, scope: scope) }
-                }
+                save(task, scope: scope, for: request)
             }
         }
         .confirmationDialog(
@@ -102,10 +115,10 @@ struct PlanWeekBrowser: View {
             presenting: pendingDelete
         ) { pending in
             Button("Only on \(pending.date.shortText)", role: .destructive) {
-                edit { try $0.deleteTask(at: pending.index, on: pending.date, scope: .thisDate) }
+                editPlan { try $0.deleteTask(at: pending.index, on: pending.date, scope: .thisDate) }
             }
             Button("Every \(pending.date.weekday.displayName)", role: .destructive) {
-                edit { try $0.deleteTask(at: pending.index, on: pending.date, scope: .everyWeek) }
+                editPlan { try $0.deleteTask(at: pending.index, on: pending.date, scope: .everyWeek) }
             }
         } message: { pending in
             Text("“Every \(pending.date.weekday.displayName)” doesn't change dates you edited one by one.")
@@ -117,10 +130,10 @@ struct PlanWeekBrowser: View {
             presenting: resettingDay
         ) { date in
             Button("Reset to Normal \(date.weekday.displayName)", role: .destructive) {
-                edit { try $0.resetDay(date) }
+                editPlan { try $0.resetDay(date) }
             }
         } message: { date in
-            Text("\(date.longText) will show the normal \(date.weekday.displayName) tasks again. All changes to this date are removed, including ones from the plan file.")
+            Text("\(date.longText) will show the normal \(date.weekday.displayName) tasks again. All plan changes to this date are removed, including ones from the plan file.")
         }
         .confirmationDialog(
             "Clear this day?",
@@ -129,7 +142,7 @@ struct PlanWeekBrowser: View {
             presenting: clearingDay
         ) { date in
             Button("Remove All Tasks", role: .destructive) {
-                edit { try $0.clearDay(date) }
+                clear(date)
             }
         } message: { date in
             Text("Every task on \(date.longText) will be removed. Other days don't change.")
@@ -145,39 +158,42 @@ struct PlanWeekBrowser: View {
     }
 
     @ViewBuilder
-    private func daySection(_ day: ResolvedDay) -> some View {
+    private func daySection(_ agenda: DayAgenda) -> some View {
+        let day = agenda.day
         if let note = day.dayNote {
             Text(note).foregroundStyle(.secondary)
         }
-        if !day.isInPlan {
-            Text("Outside the plan's dates").foregroundStyle(.secondary)
-        } else if day.tasks.isEmpty {
-            Text("No tasks").foregroundStyle(.secondary)
+        if day.tasks.isEmpty {
+            Text(plan != nil && !day.isInPlan ? "No tasks · outside the plan's dates" : "No tasks")
+                .foregroundStyle(.secondary)
         }
         ForEach(Array(day.tasks.enumerated()), id: \.offset) { index, task in
+            let extra = agenda.extra(at: index)
             NavigationLink {
                 TaskDetailView(task: task)
             } label: {
-                TaskRow(task: task)
+                TaskRow(task: task, note: extra == nil ? nil : "added in the app")
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 if isEditable {
-                    taskActions(task: task, index: index, date: day.date)
+                    taskActions(task: task, index: index, date: day.date, extra: extra)
                 }
             }
             .contextMenu {
                 if isEditable {
-                    taskActions(task: task, index: index, date: day.date)
+                    taskActions(task: task, index: index, date: day.date, extra: extra)
                 }
             }
         }
-        if isEditable && day.isInPlan {
+        if isEditable {
             HStack(spacing: 16) {
                 Button("Add Task", systemImage: "plus.circle") {
-                    editRequest = .add(on: day.date)
+                    let intoPlan = editsGoIntoPlan(on: day.date)
+                    editRequest = TaskEditRequest(date: day.date, target: intoPlan ? .newPlanTask : .newExtraTask,
+                                                  existing: nil, allowsEveryWeek: intoPlan)
                 }
                 Spacer()
-                if day.overrideMode != nil {
+                if day.overrideMode != nil && stored != nil {
                     Button("Reset", systemImage: "arrow.uturn.backward.circle") {
                         resettingDay = day.date
                     }
@@ -195,28 +211,64 @@ struct PlanWeekBrowser: View {
     }
 
     @ViewBuilder
-    private func taskActions(task: PlanTask, index: Int, date: LocalDate) -> some View {
+    private func taskActions(task: PlanTask, index: Int, date: LocalDate, extra: ExtraTask?) -> some View {
         let fromWeeklyPattern: Bool = {
-            if case .weeklyPattern = plan.source(ofTaskAt: index, on: date) { return true }
-            return false
+            guard extra == nil, stored != nil, case .weeklyPattern = plan?.source(ofTaskAt: index, on: date) else { return false }
+            return true
         }()
         Button("Delete", systemImage: "trash", role: .destructive) {
-            if fromWeeklyPattern {
+            if let extra {
+                deleteExtras([extra])
+            } else if fromWeeklyPattern {
                 pendingDelete = PendingDelete(date: date, index: index, title: task.title)
             } else {
-                edit { try $0.deleteTask(at: index, on: date, scope: .thisDate) }
+                editPlan { try $0.deleteTask(at: index, on: date, scope: .thisDate) }
             }
         }
         Button("Edit", systemImage: "pencil") {
-            editRequest = TaskEditRequest(date: date, index: index, existing: task, allowsEveryWeek: fromWeeklyPattern)
+            let target: TaskEditRequest.Target = extra.map { .extraTask($0) } ?? .planTask(index: index)
+            editRequest = TaskEditRequest(date: date, target: target, existing: task, allowsEveryWeek: fromWeeklyPattern)
         }
         .tint(.blue)
     }
 
-    private func edit(_ change: (inout Plan) throws -> Void) {
+    // MARK: - Saving
+
+    private func save(_ task: PlanTask, scope: EditScope, for request: TaskEditRequest) {
+        switch request.target {
+        case .newPlanTask:
+            editPlan { try $0.addTask(task, on: request.date, scope: scope) }
+        case .planTask(let index):
+            editPlan { try $0.replaceTask(at: index, on: request.date, with: task, scope: scope) }
+        case .newExtraTask:
+            perform { try ExtraTaskStore.add(task, on: request.date, in: modelContext) }
+        case .extraTask(let extra):
+            perform { try ExtraTaskStore.update(extra, with: task, in: modelContext) }
+        }
+    }
+
+    private func clear(_ date: LocalDate) {
+        let agenda = DayAgenda(date: date, plan: plan, extras: extras)
+        if agenda.planTaskCount > 0 {
+            editPlan { try $0.clearDay(date) }
+        }
+        if !agenda.extras.isEmpty {
+            deleteExtras(agenda.extras)
+        }
+    }
+
+    private func deleteExtras(_ items: [ExtraTask]) {
+        perform { try ExtraTaskStore.delete(items, in: modelContext) }
+    }
+
+    private func editPlan(_ change: (inout Plan) throws -> Void) {
         guard let stored else { return }
+        perform { try PlanStore.update(stored, in: modelContext, change) }
+    }
+
+    private func perform(_ action: () throws -> Void) {
         do {
-            try PlanStore.update(stored, in: modelContext, change)
+            try action()
         } catch {
             editError = error.localizedDescription
         }
@@ -228,13 +280,12 @@ struct PlanWeekBrowser: View {
                 weekStart = weekStart.adding(days: -7)
             }
             .labelStyle(.iconOnly)
-            .disabled(!canGoBack)
 
             Spacer()
             VStack(spacing: 2) {
                 Text("\(weekStart.monthDayText) – \(weekStart.adding(days: 6).monthDayText)")
                     .font(.headline)
-                if weekStart != todayWeekStart && plan.contains(today) {
+                if weekStart != todayWeekStart {
                     Button("Go to this week") { weekStart = todayWeekStart }
                         .font(.footnote)
                 }
@@ -245,7 +296,6 @@ struct PlanWeekBrowser: View {
                 weekStart = weekStart.adding(days: 7)
             }
             .labelStyle(.iconOnly)
-            .disabled(!canGoForward)
         }
         .buttonStyle(.borderless)
         .imageScale(.large)
@@ -275,6 +325,7 @@ private struct DayHeader: View {
 
 struct TaskRow: View {
     let task: PlanTask
+    var note: String?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -283,7 +334,7 @@ struct TaskRow: View {
                 .foregroundStyle(task.suggestedTime == nil ? .secondary : .primary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(task.title)
-                Text([task.category, task.durationText].compactMap { $0 }.joined(separator: " · "))
+                Text([task.category, task.durationText, note].compactMap { $0 }.joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

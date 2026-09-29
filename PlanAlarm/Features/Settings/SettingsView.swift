@@ -61,6 +61,18 @@ private struct AlarmSettingsSection: View {
                 LabeledContent("Next wake-up", value: next.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
             }
             Stepper("Snooze: \(settings.snoozeMinutes) min", value: $settings.snoozeMinutes, in: 1...30)
+            Stepper("Stop Alarm unlocks after \(settings.stopUnlockSeconds) s",
+                    value: $settings.stopUnlockSeconds, in: 5...300, step: 5)
+            NavigationLink {
+                TonePickerView(title: "Task Alarm Tone", selection: $settings.taskTone)
+            } label: {
+                LabeledContent("Task alarm tone", value: settings.taskTone.displayName)
+            }
+            NavigationLink {
+                TonePickerView(title: "Wake-up Tone", selection: $settings.wakeTone)
+            } label: {
+                LabeledContent("Wake-up tone", value: settings.wakeTone.displayName)
+            }
             if let error = alarms.lastError {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
@@ -69,9 +81,12 @@ private struct AlarmSettingsSection: View {
         } header: {
             Text("Alarms")
         } footer: {
-            Text("A task alarm keeps coming back every \(settings.snoozeMinutes) min until you read the task in the app.")
+            Text("A task alarm rings again every \(settings.snoozeMinutes) min, however it's stopped (Stop, slide, or the side and volume buttons), until you tap Stop Alarm in the app.")
         }
         .onChange(of: settings.wakeSchedule) {
+            alarms.applyWakeSchedule(settings.wakeSchedule)
+        }
+        .onChange(of: settings.wakeToneID) {
             alarms.applyWakeSchedule(settings.wakeSchedule)
         }
     }
@@ -133,7 +148,7 @@ private struct DebugSection: View {
             ForEach(alarms.registry.tasks) { entry in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.task.title)
-                    Text("Next: \(entry.nextAlarmAt.formatted(date: .omitted, time: .standard)) · snoozed \(entry.snoozeCount)×")
+                    Text("Next ring: \(entry.nextRing()?.date.formatted(date: .omitted, time: .standard) ?? "none") · \(entry.rings.count) rings scheduled · rang again \(alarms.snoozeCount(for: entry))×")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -166,5 +181,5 @@ enum AppInfo {
 #Preview {
     SettingsView()
         .environment(ImportController())
-        .modelContainer(for: [StoredPlan.self, AppSettings.self], inMemory: true)
+        .modelContainer(for: [StoredPlan.self, AppSettings.self, ExtraTask.self], inMemory: true)
 }

@@ -1,7 +1,8 @@
 import AppIntents
 import Foundation
 
-/// Runs when the task alarm's Stop button is pressed: the alarm comes back after the snooze length.
+/// Runs when a task alarm is stopped (Stop, slide, or a physical button) — when iOS runs it at all.
+/// It re-times the backup chain so the next ring is exactly one snooze length later.
 struct SnoozeTaskIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Snooze Task Alarm"
     static let isDiscoverable = false
@@ -41,7 +42,7 @@ struct OpenTaskIntent: LiveActivityIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        await AlarmService.handleOpen(taskKey: taskKey)
+        await AlarmService.handleOpen(taskKey: taskKey, alarmID: alarmID)
         return .result()
     }
 }

@@ -1,17 +1,30 @@
 import SwiftUI
 
-/// What the editor sheet is doing: adding a task to a date, or editing the task at `index`.
+/// What the editor sheet is doing, and where the result is saved.
 struct TaskEditRequest: Identifiable {
+    enum Target {
+        /// A new task in the plan (the date is inside the plan's dates).
+        case newPlanTask
+        /// A new task kept in the app (outside the plan's dates, or no plan).
+        case newExtraTask
+        /// The plan task at this position on the date.
+        case planTask(index: Int)
+        /// A task kept in the app.
+        case extraTask(ExtraTask)
+    }
+
     let id = UUID()
     let date: LocalDate
-    /// The task's position on the date when editing; nil when adding.
-    let index: Int?
+    let target: Target
     let existing: PlanTask?
-    /// Whether "every week" is offered (adding, or editing a task from the weekly pattern).
+    /// Whether "every week" is offered (a new plan task, or a task from the weekly pattern).
     let allowsEveryWeek: Bool
 
-    static func add(on date: LocalDate) -> TaskEditRequest {
-        TaskEditRequest(date: date, index: nil, existing: nil, allowsEveryWeek: true)
+    var savesOutsidePlan: Bool {
+        switch target {
+        case .newExtraTask, .extraTask: true
+        case .newPlanTask, .planTask: false
+        }
     }
 }
 
@@ -19,7 +32,7 @@ struct TaskEditRequest: Identifiable {
 /// tasks, so later library changes don't alter them.
 struct TaskEditorView: View {
     let request: TaskEditRequest
-    let plan: Plan
+    let plan: Plan?
     let onSave: (PlanTask, EditScope) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -42,11 +55,11 @@ struct TaskEditorView: View {
         var itemsText = ""
     }
 
-    init(request: TaskEditRequest, plan: Plan, onSave: @escaping (PlanTask, EditScope) -> Void) {
+    init(request: TaskEditRequest, plan: Plan?, onSave: @escaping (PlanTask, EditScope) -> Void) {
         self.request = request
         self.plan = plan
         self.onSave = onSave
-        _readSeconds = State(initialValue: plan.defaultReadSeconds)
+        _readSeconds = State(initialValue: plan?.defaultReadSeconds ?? Plan.fallbackReadSeconds)
         _time = State(initialValue: request.date.date(hour: 9, minute: 0))
     }
 
@@ -54,7 +67,7 @@ struct TaskEditorView: View {
     private var date: LocalDate { request.date }
 
     private var categorySuggestions: [String] {
-        let fromPlan = plan.library.values.map(\.category)
+        let fromPlan = plan?.library.values.map(\.category) ?? []
         return Array(Set(["gym", "mobility", "study", "nutrition", "other"] + fromPlan)).sorted()
     }
 
@@ -63,7 +76,10 @@ struct TaskEditorView: View {
     }
 
     private var scopeNote: String {
-        switch scope {
+        if request.savesOutsidePlan {
+            return "For \(date.longText). This date isn't covered by a plan, so the task is kept in the app (it's not included when you share the plan file)."
+        }
+        return switch scope {
         case .thisDate:
             "Only \(date.longText) changes."
         case .everyWeek:
@@ -85,7 +101,7 @@ struct TaskEditorView: View {
                     Text(scopeNote)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                    if !isEditing && !plan.library.isEmpty {
+                    if !isEditing, let plan, !plan.library.isEmpty {
                         Picker("Start from", selection: $libraryKey) {
                             Text("New task").tag(String?.none)
                             ForEach(plan.library.keys.sorted(), id: \.self) { key in
@@ -162,7 +178,7 @@ struct TaskEditorView: View {
                 if let existing = request.existing { fill(from: existing) }
             }
             .onChange(of: libraryKey) {
-                if let libraryKey, let task = plan.library[libraryKey] { fill(from: task) }
+                if let libraryKey, let task = plan?.library[libraryKey] { fill(from: task) }
             }
         }
     }

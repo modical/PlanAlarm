@@ -70,7 +70,11 @@ struct RootView: View {
         }
         // A task alarm that hasn't been acknowledged takes over the screen, whatever route opened the app.
         .fullScreenCover(item: presentedTask) { pending in
-            TaskAlarmView(pending: pending) {
+            TaskAlarmView(
+                pending: pending,
+                unlockSeconds: alarms.unlockSeconds(for: pending),
+                snoozeCount: alarms.snoozeCount(for: pending)
+            ) {
                 alarms.acknowledge(taskKey: pending.key)
                 router.presentedTaskKey = nil
                 router.showPendingTaskIfNeeded()
@@ -96,5 +100,5 @@ struct RootView: View {
 
 #Preview {
     RootView()
-        .modelContainer(for: [StoredPlan.self, AppSettings.self], inMemory: true)
+        .modelContainer(for: [StoredPlan.self, AppSettings.self, ExtraTask.self], inMemory: true)
 }

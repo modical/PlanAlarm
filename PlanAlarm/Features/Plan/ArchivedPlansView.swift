@@ -67,7 +67,7 @@ private struct ArchivedPlanDetail: View {
     var body: some View {
         Group {
             if let plan = PlanStore.plan(for: stored) {
-                PlanWeekBrowser(plan: plan)
+                PlanWeekBrowser(plan: plan, isEditable: false)
             } else {
                 ContentUnavailableView("Can't read this plan", systemImage: "exclamationmark.triangle")
             }

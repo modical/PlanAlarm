@@ -14,16 +14,11 @@ struct PlanView: View {
         NavigationStack {
             Group {
                 if let active, let plan = PlanStore.plan(for: active) {
-                    PlanWeekBrowser(plan: plan, stored: active, archivedCount: archivedCount)
+                    PlanWeekBrowser(plan: plan, stored: active, isEditable: true, archivedCount: archivedCount)
                         .id(active.id)
                 } else {
-                    ContentUnavailableView {
-                        Label("No plan loaded", systemImage: "list.bullet.rectangle")
-                    } description: {
-                        Text("Import a .dayplan file, paste plan JSON, create an empty plan, or try the sample plan.")
-                    } actions: {
-                        ImportPlanButtons()
-                    }
+                    // No plan: days can still get tasks of their own.
+                    PlanWeekBrowser(plan: nil, isEditable: true, archivedCount: archivedCount > 0 ? archivedCount : nil)
                 }
             }
             .navigationTitle(active?.name ?? "Plan")
@@ -81,5 +76,5 @@ struct PlanView: View {
 #Preview {
     PlanView()
         .environment(ImportController())
-        .modelContainer(for: StoredPlan.self, inMemory: true)
+        .modelContainer(for: [StoredPlan.self, AppSettings.self, ExtraTask.self], inMemory: true)
 }
