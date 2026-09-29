@@ -109,8 +109,8 @@ struct TodayTimelineView: View {
 
 private struct TimelineRow: View {
     let record: TaskRecord
-    let onReschedule: (Date) -> Void
-    let onLog: (TaskStatus) -> Void
+    let onReschedule: @MainActor (Date) -> Void
+    let onLog: @MainActor (TaskStatus) -> Void
 
     private var canChangeTime: Bool {
         record.status == .scheduled && (record.scheduledFor ?? .distantPast) > .now
