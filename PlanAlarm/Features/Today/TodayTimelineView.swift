@@ -12,6 +12,7 @@ struct TodayTimelineView: View {
     @State private var alarms = AlarmService.shared
     @State private var router = AppRouter.shared
     @State private var errorText: String?
+    @State private var isConfirmingUnlock = false
 
     init(date: LocalDate, dayRecord: DayRecord) {
         self.date = date
@@ -74,6 +75,18 @@ struct TodayTimelineView: View {
             }
         }
         .navigationTitle("Today")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Unlock Day", systemImage: "lock.open") {
+                    isConfirmingUnlock = true
+                }
+            }
+        }
+        .confirmationDialog("Unlock today?", isPresented: $isConfirmingUnlock, titleVisibility: .visible) {
+            Button("Unlock and Redo Check-in") { unlockDay() }
+        } message: {
+            Text("Today's task alarms are cancelled and you go back to the morning check-in to plan the day again. Tasks you've already marked done or skipped stay.")
+        }
         .alert("Couldn't update the task", isPresented: .init(
             get: { errorText != nil },
             set: { if !$0 { errorText = nil } }
@@ -94,6 +107,17 @@ struct TodayTimelineView: View {
         try? modelContext.save()
         Task {
             await alarms.scheduleTaskAlarm(for: task, key: record.alarmKey, at: time, unlockSeconds: record.unlockSeconds)
+        }
+    }
+
+    private func unlockDay() {
+        do {
+            for key in try DayStore.unlock(date, in: modelContext) {
+                alarms.acknowledge(taskKey: key)
+            }
+            alarms.updateCheckInReminders()
+        } catch {
+            errorText = error.localizedDescription
         }
     }
 

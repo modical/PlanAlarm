@@ -163,6 +163,31 @@ struct DayStoreTests {
         #expect(records[1].status == .scheduled)
     }
 
+    @Test func unlockKeepsOnlyTasksFinishedDuringTheDay() throws {
+        let context = try makeContext()
+        let day = date("2026-10-05")
+        let first = try DayStore.lockIn(date: day, dayNote: nil, planName: nil, items: [
+            item(0, "Done early", time: day.date(hour: 8, minute: 0)),
+            item(1, "Skipped later", time: day.date(hour: 9, minute: 0)),
+            item(2, "Skipped at check-in", time: nil, skipped: true),
+            item(3, "Still scheduled", time: day.date(hour: 18, minute: 0)),
+        ], in: context)
+        try DayStore.log(first[0], as: .done, now: day.date(hour: 8, minute: 30), in: context)
+        try DayStore.log(first[1], as: .skipped, now: day.date(hour: 9, minute: 5), in: context)
+
+        let cancelled = try DayStore.unlock(day, in: context)
+        #expect(!DayStore.isLockedIn(day, in: context))
+        #expect(Set(cancelled) == Set([first[2].alarmKey, first[3].alarmKey]))
+        #expect(DayStore.records(on: day, in: context).map(\.title) == ["Done early", "Skipped later"])
+
+        // Locking in again adds the new plan after the kept records.
+        let second = try DayStore.lockIn(date: day, dayNote: nil, planName: nil,
+                                         items: [item(0, "Still scheduled", time: day.date(hour: 19, minute: 0))], in: context)
+        #expect(DayStore.isLockedIn(day, in: context))
+        #expect(second[0].order == 2)
+        #expect(DayStore.records(on: day, in: context).map(\.title) == ["Done early", "Skipped later", "Still scheduled"])
+    }
+
     @Test func oldUnresolvedTasksBecomeUnlogged() throws {
         let context = try makeContext()
         let old = try DayStore.lockIn(date: date("2026-10-03"), dayNote: nil, planName: nil,

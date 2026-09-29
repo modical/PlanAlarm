@@ -15,6 +15,8 @@ struct CheckInView: View {
     @State private var dayNote: String?
     @State private var planName: String?
     @State private var carryOver: [TaskRecord] = []
+    /// Tasks already done or skipped today (kept when the day was unlocked).
+    @State private var finishedToday: [TaskRecord] = []
     @State private var answers: [UUID: TaskStatus] = [:]
     @State private var isLockingIn = false
     @State private var errorText: String?
@@ -73,6 +75,18 @@ struct CheckInView: View {
                     Text("Each task gets an alarm at its time. Set a time for every task, or skip it for today.")
                 }
             }
+
+            if !finishedToday.isEmpty {
+                Section("Already done today") {
+                    ForEach(finishedToday) { record in
+                        HStack {
+                            Text(record.title)
+                            Spacer()
+                            StatusChip(status: record.status)
+                        }
+                    }
+                }
+            }
         }
         .navigationTitle("Morning Check-in")
         .safeAreaInset(edge: .bottom) {
@@ -121,7 +135,11 @@ struct CheckInView: View {
         let stored = activePlans.first
         let plan = stored.flatMap { PlanStore.plan(for: $0) }
         let agenda = DayAgenda(date: date, plan: plan, extras: extras)
+        // After an unlock, tasks already finished today aren't planned again.
+        finishedToday = DayStore.records(on: date, in: modelContext)
+        let finishedTitles = Set(finishedToday.map(\.title))
         items = CheckInPlanner.items(for: agenda, planDefaultReadSeconds: plan?.defaultReadSeconds, now: .now)
+            .filter { !finishedTitles.contains($0.task.title) }
         dayNote = agenda.day.dayNote
         planName = plan?.name
 

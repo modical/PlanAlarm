@@ -130,8 +130,10 @@ enum DayStore {
     static func lockIn(date: LocalDate, dayNote: String?, planName: String?, items: [CheckInItem],
                        now: Date = .now, in context: ModelContext = AppDatabase.context) throws -> [TaskRecord] {
         context.insert(DayRecord(date: date, dayNote: dayNote, planName: planName, lockedInAt: now))
-        let records = items.enumerated().map { order, item in
-            TaskRecord(date: date, order: order, task: item.task, isExtra: item.isExtra,
+        // After an unlock, records kept from earlier in the day come first.
+        let firstOrder = (DayStore.records(on: date, in: context).map(\.order).max() ?? -1) + 1
+        let records = items.enumerated().map { offset, item in
+            TaskRecord(date: date, order: firstOrder + offset, task: item.task, isExtra: item.isExtra,
                        scheduledFor: item.isSkipped ? nil : item.time,
                        status: item.isSkipped ? .skipped : .scheduled,
                        unlockSeconds: item.unlockSeconds, lockedInAt: now)
@@ -141,6 +143,33 @@ enum DayStore {
         }
         try context.save()
         return records
+    }
+
+    /// Whether a record was resolved by the user during the day (done, or skipped after the check-in),
+    /// as opposed to skipped at the check-in itself.
+    static func wasResolvedDuringDay(_ record: TaskRecord) -> Bool {
+        switch record.status {
+        case .done: true
+        case .skipped: record.skippedAt != record.lockedInAt
+        default: false
+        }
+    }
+
+    /// Unlocks a day so the check-in can be done again. Tasks already done or skipped during the day are
+    /// kept; every other record is removed. Returns the alarm keys whose chains must be cancelled.
+    @discardableResult
+    static func unlock(_ date: LocalDate, in context: ModelContext = AppDatabase.context) throws -> [String] {
+        let key = date.description
+        for day in try context.fetch(FetchDescriptor<DayRecord>(predicate: #Predicate { $0.date == key })) {
+            context.delete(day)
+        }
+        var cancelled: [String] = []
+        for record in records(on: date, in: context) where !wasResolvedDuringDay(record) {
+            cancelled.append(record.alarmKey)
+            context.delete(record)
+        }
+        try context.save()
+        return cancelled
     }
 
     /// Logs a task as done or skipped.
