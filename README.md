@@ -3,7 +3,7 @@
 A personal iPhone app that turns a daily plan (gym, stretches, study…) into reminders that ring like
 real alarms: through silent mode and Focus, over and over, until you open the app and read the task.
 
-> Status: **phase 3 (alarms)**. Plans load and can be edited; the wake-up alarm and test task alarms work. The morning check-in arrives in phase 4.
+> Status: **phase 4 (morning check-in)**. Plans load and can be edited; the wake-up alarm, morning check-in and task alarms work. The read-to-dismiss screen and follow-up notifications arrive in phase 5.
 
 ## Getting the app (.ipa)
 
@@ -79,6 +79,20 @@ A date you changed on its own keeps its own tasks, even if you later change "eve
 **Days outside the plan (or with no plan):** you can still add, edit and delete tasks there. They're kept
 in the app rather than in the plan file, so they stay when you load a new plan, but **Share Plan as File**
 doesn't include them.
+
+## Your day: the morning check-in
+
+1. The wake-up alarm rings (Settings → Alarms → Wake-up alarm; default 07:00).
+2. Open PlanAlarm. The **Today** tab shows the **Morning Check-in**:
+   - Yesterday's unfinished tasks ask **"Did you do these?"**: answer Done or Skipped.
+   - Each of today's tasks has a time (from the plan). Change it, tap **Set time** if it has none, or turn on
+     **Skip today**. Tasks whose time already passed are moved to 15 minutes from now and highlighted.
+     Overlapping tasks show a warning.
+3. Tap **Lock In My Day**. Every task gets its alarm.
+4. If you don't lock in, a **check-in reminder** rings 30 min after the wake-up alarm, then every 30 min
+   (4 times). Change or turn it off in Settings → Alarms.
+5. After locking in, **Today** shows your timeline. Change a task's time there (its alarm moves), or mark it
+   **Done** / **Skip**.
 
 ## How the alarms behave
 

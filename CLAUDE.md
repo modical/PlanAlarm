@@ -82,6 +82,19 @@ and say exactly what to reply afterwards.
 - `ExtraTask` (SwiftData): tasks the user adds on dates outside the plan or with no plan. Kept outside the
   plan file (no schema change), so they survive plan replacement but aren't in shared `.dayplan` files.
   `DayAgenda` = plan day tasks followed by that date's extras; later phases must schedule from `DayAgenda`.
+- Days: `DayRecord` (a locked-in date) + `TaskRecord` (one per task per day: snapshot of the task, chosen
+  time, `TaskStatus` scheduled → ringing → inProgress → done | skipped, or unlogged; timestamps; snooze count).
+  `DayStore` reads/writes them. A task's alarm-chain key is `TaskRecord.alarmKey` (its UUID string).
+- Morning check-in (`Features/CheckIn`): `CheckInPlanner` holds the rules (passed times → now + 15 min rounded
+  up to 5 min; overlap warnings by duration; blocking reasons). Today tab shows `CheckInView` until the date
+  has a `DayRecord`, then `TodayTimelineView`. Opening the app switches to Today until locked in.
+  Yesterday's unresolved tasks must be answered; older ones become `unlogged` automatically.
+- Check-in reminder: `AlarmService.updateCheckInReminders()` keeps 4 rings (every `checkInReminderMinutes`
+  after that day's wake time) for today and tomorrow while not locked in; `registry.checkInChains`.
+- `AlarmRegistry` decodes missing fields as empty (custom `init(from:)`): **add new fields there too**, or a
+  missing key would wipe the registry and the orphan clean-up would cancel every alarm.
+- Swift 6 gotcha: don't build `Binding(get:set:)` from a stored callback property (Sendable warning); marking
+  the callback `@MainActor` crashed the Swift 6.2 compiler in Xcode 26.6. Use local `@State` + `.onChange`.
 - Plans can be deleted (active or archived). So history (phases 5–6) must **snapshot** task data
   (title, category, times) in its own records and must never depend on a `StoredPlan` still existing.
 
@@ -109,7 +122,8 @@ After each phase: commit, push, get a green CI run, then summarise what works an
    hidden debug tools (Settings → tap "Build" 7×). Build 11 tested on the phone: Stop didn't snooze.
    **3b. Owner feedback** — backup-ring chains, Stop Alarm unlock timer, alarm tones, tasks on any day.
    *(done in build 12 — waiting for on-device tests)*
-4. Morning check-in + scheduling, re-alarm, passed-time handling.
+4. **Morning check-in** + scheduling, re-alarm, passed-time handling, Today timeline.
+   *(done in build 15 — waiting for on-device tests)*
 5. Read-to-dismiss, statuses, follow-up notifications.
 6. History and streaks (+ edge-case tests: rest days, skips, plan changes, DST).
 7. Expiry protection, onboarding, settings polish, README.
