@@ -109,8 +109,17 @@ struct TodayTimelineView: View {
 
 private struct TimelineRow: View {
     let record: TaskRecord
-    let onReschedule: @MainActor (Date) -> Void
-    let onLog: @MainActor (TaskStatus) -> Void
+    let onReschedule: (Date) -> Void
+    let onLog: (TaskStatus) -> Void
+
+    @State private var pickedTime: Date
+
+    init(record: TaskRecord, onReschedule: @escaping (Date) -> Void, onLog: @escaping (TaskStatus) -> Void) {
+        self.record = record
+        self.onReschedule = onReschedule
+        self.onLog = onLog
+        _pickedTime = State(initialValue: record.scheduledFor ?? .now)
+    }
 
     private var canChangeTime: Bool {
         record.status == .scheduled && (record.scheduledFor ?? .distantPast) > .now
@@ -137,11 +146,13 @@ private struct TimelineRow: View {
                     }
                 }
                 Spacer()
-                if canChangeTime, let time = record.scheduledFor {
-                    DatePicker("Time", selection: Binding(get: { time }, set: onReschedule),
-                               displayedComponents: .hourAndMinute)
+                if canChangeTime {
+                    DatePicker("Time", selection: $pickedTime, displayedComponents: .hourAndMinute)
                         .labelsHidden()
                         .environment(\.calendar, .plan)
+                        .onChange(of: pickedTime) {
+                            if pickedTime != record.scheduledFor { onReschedule(pickedTime) }
+                        }
                 } else if let time = record.scheduledFor {
                     Text(time.formatted(date: .omitted, time: .shortened))
                         .monospacedDigit()
