@@ -103,6 +103,30 @@ struct CheckInView: View {
             Text(errorText ?? "")
         }
         .onAppear(perform: load)
+        // Plan-tab changes (or extra tasks) show up right away; choices already made are kept.
+        .onChange(of: CheckInPlanner.signature(of: currentAgenda)) {
+            rebuildItems()
+        }
+    }
+
+    private var currentPlan: Plan? {
+        activePlans.first.flatMap { PlanStore.plan(for: $0) }
+    }
+
+    private var currentAgenda: DayAgenda {
+        DayAgenda(date: date, plan: currentPlan, extras: extras)
+    }
+
+    private func rebuildItems() {
+        guard hasLoaded else { return }
+        let plan = currentPlan
+        let agenda = currentAgenda
+        let finishedTitles = Set(finishedToday.map(\.title))
+        let fresh = CheckInPlanner.items(for: agenda, planDefaultReadSeconds: plan?.defaultReadSeconds, now: .now)
+            .filter { !finishedTitles.contains($0.task.title) }
+        items = CheckInPlanner.merge(fresh, keeping: items)
+        dayNote = agenda.day.dayNote
+        planName = plan?.name
     }
 
     private func lockInBar(now: Date) -> some View {
@@ -128,13 +152,12 @@ struct CheckInView: View {
         .background(.bar)
     }
 
-    /// Builds the items once, so edits during the check-in aren't reset by view updates.
+    /// Builds the items when the screen first appears; later plan changes go through `rebuildItems()`.
     private func load() {
         guard !hasLoaded else { return }
         hasLoaded = true
-        let stored = activePlans.first
-        let plan = stored.flatMap { PlanStore.plan(for: $0) }
-        let agenda = DayAgenda(date: date, plan: plan, extras: extras)
+        let plan = currentPlan
+        let agenda = currentAgenda
         // After an unlock, tasks already finished today aren't planned again.
         finishedToday = DayStore.records(on: date, in: modelContext)
         let finishedTitles = Set(finishedToday.map(\.title))

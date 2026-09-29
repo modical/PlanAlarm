@@ -1,18 +1,25 @@
 import SwiftData
 import SwiftUI
 
-/// The locked-in day: each task with its time and status. Times of tasks that haven't rung yet can be
-/// changed (the alarm moves too), and any open task can be marked done or skipped.
+/// The locked-in day: each task with its time and status.
+/// - Tasks that haven't rung yet can have their time changed inline (the alarm moves too).
+/// - Open tasks can be marked done or skipped, or given a new time (when ringing, in progress, or overdue).
+/// - Done, skipped and not-logged tasks can be undone.
+/// - Changes to today in the Plan tab are applied here right away.
 struct TodayTimelineView: View {
     let date: LocalDate
     let dayRecord: DayRecord
 
     @Environment(\.modelContext) private var modelContext
     @Query private var records: [TaskRecord]
+    @Query(filter: #Predicate<StoredPlan> { $0.isActive == true }) private var activePlans: [StoredPlan]
+    @Query(sort: \ExtraTask.createdAt) private var extras: [ExtraTask]
     @State private var alarms = AlarmService.shared
     @State private var router = AppRouter.shared
     @State private var errorText: String?
     @State private var isConfirmingUnlock = false
+    @State private var newTimeFor: TaskRecord?
+    @State private var now = Date.now
 
     init(date: LocalDate, dayRecord: DayRecord) {
         self.date = date
@@ -21,8 +28,23 @@ struct TodayTimelineView: View {
         _records = Query(filter: #Predicate<TaskRecord> { $0.date == key }, sort: \TaskRecord.order)
     }
 
+    private var currentPlan: Plan? {
+        activePlans.first.flatMap { PlanStore.plan(for: $0) }
+    }
+
+    private var currentAgenda: DayAgenda {
+        DayAgenda(date: date, plan: currentPlan, extras: extras)
+    }
+
     private var timeline: [TaskRecord] {
         records.sorted { ($0.scheduledFor ?? .distantFuture, $0.order) < ($1.scheduledFor ?? .distantFuture, $1.order) }
+    }
+
+    /// An open task with no alarm coming: no time yet, or its time passed without an alarm (e.g. after Undo).
+    private func needsTime(_ record: TaskRecord, now: Date) -> Bool {
+        record.status == .scheduled
+            && (record.scheduledFor ?? .distantPast) <= now
+            && alarms.registry.task(forKey: record.alarmKey) == nil
     }
 
     var body: some View {
@@ -66,12 +88,22 @@ struct TodayTimelineView: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(timeline) { record in
-                    TimelineRow(record: record) { newTime in
-                        reschedule(record, to: newTime)
-                    } onLog: { status in
-                        log(record, as: status)
-                    }
+                    TimelineRow(
+                        record: record,
+                        needsTime: needsTime(record, now: now),
+                        onReschedule: { reschedule(record, to: $0) },
+                        onLog: { log(record, as: $0) },
+                        onUndo: { undo(record) },
+                        onNewTime: { newTimeFor = record }
+                    )
                 }
+            }
+        }
+        .task {
+            // Keeps "overdue" states current while the screen is open.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                now = .now
             }
         }
         .navigationTitle("Today")
@@ -87,6 +119,11 @@ struct TodayTimelineView: View {
         } message: {
             Text("Today's task alarms are cancelled and you go back to the morning check-in to plan the day again. Tasks you've already marked done or skipped stay.")
         }
+        .sheet(item: $newTimeFor) { record in
+            NewTimeSheet(title: record.title) { time in
+                reschedule(record, to: time)
+            }
+        }
         .alert("Couldn't update the task", isPresented: .init(
             get: { errorText != nil },
             set: { if !$0 { errorText = nil } }
@@ -95,6 +132,32 @@ struct TodayTimelineView: View {
         } message: {
             Text(errorText ?? "")
         }
+        // Changes to today in the Plan tab (or extra tasks) are applied right away.
+        .onChange(of: CheckInPlanner.signature(of: currentAgenda), initial: true) {
+            syncWithPlan()
+        }
+    }
+
+    private func syncWithPlan() {
+        do {
+            let result = try DayStore.sync(date, with: currentAgenda, planDefaultReadSeconds: currentPlan?.defaultReadSeconds,
+                                           in: modelContext)
+            for key in result.removedKeys {
+                alarms.acknowledge(taskKey: key)
+            }
+            for record in result.added {
+                scheduleAlarm(for: record)
+            }
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func scheduleAlarm(for record: TaskRecord) {
+        guard let task = record.task, let time = record.scheduledFor, time > .now else { return }
+        Task {
+            await alarms.scheduleTaskAlarm(for: task, key: record.alarmKey, at: time, unlockSeconds: record.unlockSeconds)
+        }
     }
 
     private func reschedule(_ record: TaskRecord, to time: Date) {
@@ -102,11 +165,24 @@ struct TodayTimelineView: View {
             errorText = "Pick a time later than now."
             return
         }
-        guard let task = record.task else { return }
-        record.scheduledFor = time
-        try? modelContext.save()
-        Task {
-            await alarms.scheduleTaskAlarm(for: task, key: record.alarmKey, at: time, unlockSeconds: record.unlockSeconds)
+        do {
+            try DayStore.reschedule(record, to: time, in: modelContext)
+            if router.presentedTaskKey == record.alarmKey {
+                router.presentedTaskKey = nil
+            }
+            scheduleAlarm(for: record)
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func undo(_ record: TaskRecord) {
+        do {
+            try DayStore.undo(record, in: modelContext)
+            now = .now
+            scheduleAlarm(for: record)
+        } catch {
+            errorText = error.localizedDescription
         }
     }
 
@@ -133,20 +209,33 @@ struct TodayTimelineView: View {
 
 private struct TimelineRow: View {
     let record: TaskRecord
+    let needsTime: Bool
     let onReschedule: (Date) -> Void
     let onLog: (TaskStatus) -> Void
+    let onUndo: () -> Void
+    let onNewTime: () -> Void
 
     @State private var pickedTime: Date
 
-    init(record: TaskRecord, onReschedule: @escaping (Date) -> Void, onLog: @escaping (TaskStatus) -> Void) {
+    init(record: TaskRecord, needsTime: Bool, onReschedule: @escaping (Date) -> Void,
+         onLog: @escaping (TaskStatus) -> Void, onUndo: @escaping () -> Void, onNewTime: @escaping () -> Void) {
         self.record = record
+        self.needsTime = needsTime
         self.onReschedule = onReschedule
         self.onLog = onLog
+        self.onUndo = onUndo
+        self.onNewTime = onNewTime
         _pickedTime = State(initialValue: record.scheduledFor ?? .now)
     }
 
-    private var canChangeTime: Bool {
-        record.status == .scheduled && (record.scheduledFor ?? .distantPast) > .now
+    /// A scheduled task whose alarm is still ahead: its time can be changed inline.
+    private var canChangeTimeInline: Bool {
+        record.status == .scheduled && !needsTime && (record.scheduledFor ?? .distantPast) > .now
+    }
+
+    /// Ringing, in progress, or overdue: offer a new time.
+    private var offersNewTime: Bool {
+        needsTime || record.status == .ringing || record.status == .inProgress
     }
 
     var body: some View {
@@ -162,7 +251,11 @@ private struct TimelineRow: View {
                             .font(.headline)
                             .strikethrough(record.status == .skipped)
                         HStack(spacing: 6) {
-                            StatusChip(status: record.status)
+                            if needsTime {
+                                NeedsTimeChip()
+                            } else {
+                                StatusChip(status: record.status)
+                            }
                             Text(record.category)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -170,7 +263,7 @@ private struct TimelineRow: View {
                     }
                 }
                 Spacer()
-                if canChangeTime {
+                if canChangeTimeInline {
                     DatePicker("Time", selection: $pickedTime, displayedComponents: .hourAndMinute)
                         .labelsHidden()
                         .environment(\.calendar, .plan)
@@ -183,18 +276,86 @@ private struct TimelineRow: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            if !record.status.isResolved {
-                HStack {
+            HStack {
+                if record.status.isResolved {
+                    Button(undoLabel, systemImage: "arrow.uturn.backward.circle") { onUndo() }
+                } else {
+                    if offersNewTime {
+                        Button("New Time", systemImage: "clock.arrow.circlepath") { onNewTime() }
+                            .tint(.orange)
+                    }
                     Button("Done", systemImage: "checkmark.circle") { onLog(.done) }
                         .tint(.green)
                     Button("Skip", systemImage: "forward.circle") { onLog(.skipped) }
                         .tint(.gray)
                 }
-                .buttonStyle(.bordered)
-                .font(.subheadline)
             }
+            .buttonStyle(.bordered)
+            .font(.subheadline)
         }
         .padding(.vertical, 4)
+        .onChange(of: record.scheduledFor) {
+            pickedTime = record.scheduledFor ?? .now
+        }
+    }
+
+    private var undoLabel: String {
+        switch record.status {
+        case .skipped: "Unskip"
+        case .unlogged: "Reopen"
+        default: "Undo"
+        }
+    }
+}
+
+private struct NeedsTimeChip: View {
+    var body: some View {
+        Text("Needs a time")
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(Color.orange.opacity(0.15), in: Capsule())
+            .foregroundStyle(.orange)
+    }
+}
+
+/// Picks a new time later today for a task.
+struct NewTimeSheet: View {
+    let title: String
+    let onSave: (Date) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var time = CheckInPlanner.defaultNewTime(now: .now)
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    DatePicker("New time", selection: $time, displayedComponents: .hourAndMinute)
+                        .datePickerStyle(.wheel)
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity)
+                } footer: {
+                    Text(time > .now ? "The alarm will ring at this time." : "Pick a time later than now.")
+                }
+            }
+            .environment(\.calendar, .plan)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(time)
+                        dismiss()
+                    }
+                    .disabled(time <= .now)
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 

@@ -41,6 +41,32 @@ enum CheckInPlanner {
         }
     }
 
+    /// Rebuilt items after the plan changed, keeping what the user already chose (time, skip) for tasks
+    /// that are still there. Tasks are matched by title.
+    static func merge(_ fresh: [CheckInItem], keeping previous: [CheckInItem]) -> [CheckInItem] {
+        var unused = previous
+        return fresh.map { item in
+            guard let index = unused.firstIndex(where: { $0.task.title == item.task.title && $0.isExtra == item.isExtra }) else {
+                return item
+            }
+            let old = unused.remove(at: index)
+            var merged = item
+            merged.time = old.time
+            merged.isSkipped = old.isSkipped
+            merged.timeWasMoved = old.timeWasMoved
+            return merged
+        }
+    }
+
+    /// A signature of a day's tasks, used to notice when the plan or extra tasks changed.
+    static func signature(of agenda: DayAgenda) -> [String] {
+        agenda.day.tasks.enumerated().map { index, task in
+            [index >= agenda.planTaskCount ? "extra" : "plan", task.title, task.category,
+             task.suggestedTime?.description ?? "-", task.durationMinutes.map { String($0) } ?? "-",
+             String(task.readSeconds), task.summary ?? "", String(task.sections.count)].joined(separator: "|")
+        } + [agenda.day.dayNote ?? ""]
+    }
+
     /// `now` plus 15 minutes, rounded up to the next 5-minute mark.
     static func movedTime(from now: Date) -> Date {
         roundedUpToFiveMinutes(now.addingTimeInterval(passedTimeDelay))

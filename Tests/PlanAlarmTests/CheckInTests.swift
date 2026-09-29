@@ -97,6 +97,27 @@ struct CheckInPlannerTests {
         #expect(CheckInPlanner.blockingReason(items: [], unansweredCarryOver: 0, now: now) == nil)
     }
 
+    @Test func mergeKeepsChoicesForTasksStillThere() throws {
+        let nine = try at("2026-10-05", 9, 0)
+        let noon = try at("2026-10-05", 12, 0)
+        var old = [
+            CheckInItem(id: 0, task: task("Gym"), isExtra: false, time: nine),
+            CheckInItem(id: 1, task: task("Study"), isExtra: false, time: nine),
+        ]
+        old[0].time = noon
+        old[1].isSkipped = true
+        let fresh = [
+            CheckInItem(id: 0, task: task("Stretch"), isExtra: false, time: nine), // new
+            CheckInItem(id: 1, task: task("Gym"), isExtra: false, time: nine),
+            CheckInItem(id: 2, task: task("Study"), isExtra: false, time: nine),
+        ]
+        let merged = CheckInPlanner.merge(fresh, keeping: old)
+        #expect(merged.map(\.task.title) == ["Stretch", "Gym", "Study"])
+        #expect(merged[0].time == nine)
+        #expect(merged[1].time == noon)
+        #expect(merged[2].isSkipped)
+    }
+
     @Test func checkInReminderTimes() throws {
         let calendar = try cairo()
         let dates = WakeSchedule.standard.checkInReminderDates(on: date("2026-10-05"), interval: 30 * 60, count: 4, calendar: calendar)
@@ -186,6 +207,71 @@ struct DayStoreTests {
         #expect(DayStore.isLockedIn(day, in: context))
         #expect(second[0].order == 2)
         #expect(DayStore.records(on: day, in: context).map(\.title) == ["Done early", "Skipped later", "Still scheduled"])
+    }
+
+    @Test func undoAndReschedule() throws {
+        let context = try makeContext()
+        let day = date("2026-10-05")
+        let records = try DayStore.lockIn(date: day, dayNote: nil, planName: nil, items: [
+            item(0, "Gym", time: day.date(hour: 9, minute: 0)),
+            item(1, "Walk", time: nil, skipped: true),
+        ], in: context)
+        try DayStore.log(records[0], as: .done, in: context)
+        try DayStore.undo(records[0], in: context)
+        #expect(records[0].status == .scheduled)
+        #expect(records[0].doneAt == nil)
+        #expect(records[0].scheduledFor == day.date(hour: 9, minute: 0)) // keeps its time
+
+        try DayStore.undo(records[1], in: context) // unskip a task skipped at check-in
+        #expect(records[1].status == .scheduled)
+        #expect(records[1].scheduledFor == nil)  // needs a time
+        #expect(records[1].skippedAt == nil)
+
+        DayStore.markRinging([(key: records[0].alarmKey, firstAlarmAt: day.date(hour: 9, minute: 0))], in: context)
+        try DayStore.reschedule(records[0], to: day.date(hour: 11, minute: 0), in: context)
+        #expect(records[0].status == .scheduled)
+        #expect(records[0].scheduledFor == day.date(hour: 11, minute: 0))
+        #expect(records[0].ringingAt == nil)
+    }
+
+    @Test func syncFollowsPlanChangesAfterLockIn() throws {
+        let context = try makeContext()
+        var plan = try #require(PlanParser.parse(text: Fixtures.briefExample).plan)
+        let day = date("2026-10-05")
+        let morning = day.date(hour: 6, minute: 0)
+        let items = CheckInPlanner.items(for: DayAgenda(date: day, plan: plan, extras: []),
+                                         planDefaultReadSeconds: 30, now: morning)
+        let records = try DayStore.lockIn(date: day, dayNote: nil, planName: nil, items: items, now: morning, in: context)
+        try DayStore.log(records[1], as: .done, now: morning, in: context) // push day done early
+
+        // Unchanged plan: nothing happens.
+        let same = try DayStore.sync(day, with: DayAgenda(date: day, plan: plan, extras: []),
+                                     planDefaultReadSeconds: 30, now: morning, in: context)
+        #expect(same.added.isEmpty && same.removedKeys.isEmpty)
+
+        // Remove both plan tasks and add an extra task without a time.
+        try plan.clearDay(day)
+        let task = PlanTask(taskRef: nil, title: "Walk", category: "gym", summary: nil, sections: [],
+                            durationMinutes: nil, readSeconds: 30, suggestedTime: TimeOfDay(hour: 20, minute: 0))
+        let extra = ExtraTask(date: day, task: task)
+        let changed = try DayStore.sync(day, with: DayAgenda(date: day, plan: plan, extras: [extra]),
+                                        planDefaultReadSeconds: 30, now: morning, in: context)
+        #expect(changed.removedKeys == [records[0].alarmKey])           // stretches: open → removed
+        #expect(changed.added.map(\.title) == ["Walk"])
+        #expect(changed.added.first?.scheduledFor == day.date(hour: 20, minute: 0))
+        #expect(DayStore.records(on: day, in: context).map(\.title).sorted() == ["Gym — Push day", "Walk"]) // done kept
+    }
+
+    @Test func syncAddsTasksWhoseTimePassedWithoutATime() throws {
+        let context = try makeContext()
+        let day = date("2026-10-05")
+        try DayStore.lockIn(date: day, dayNote: nil, planName: nil, items: [], in: context)
+        let task = PlanTask(taskRef: nil, title: "Late", category: "other", summary: nil, sections: [],
+                            durationMinutes: nil, readSeconds: 30, suggestedTime: TimeOfDay(hour: 7, minute: 0))
+        let result = try DayStore.sync(day, with: DayAgenda(date: day, plan: nil, extras: [ExtraTask(date: day, task: task)]),
+                                       planDefaultReadSeconds: nil, now: day.date(hour: 12, minute: 0), in: context)
+        #expect(result.added.count == 1)
+        #expect(result.added.first?.scheduledFor == nil)
     }
 
     @Test func oldUnresolvedTasksBecomeUnlogged() throws {

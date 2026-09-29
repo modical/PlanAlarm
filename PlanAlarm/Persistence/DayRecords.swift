@@ -172,6 +172,69 @@ enum DayStore {
         return cancelled
     }
 
+    /// Brings a done, skipped or not-logged task back. It keeps its time; if that time has passed,
+    /// it needs a new one before it can ring.
+    static func undo(_ record: TaskRecord, in context: ModelContext = AppDatabase.context) throws {
+        record.status = .scheduled
+        record.doneAt = nil
+        record.skippedAt = nil
+        record.ringingAt = nil
+        record.acknowledgedAt = nil
+        try context.save()
+    }
+
+    /// Gives a task a new time today. Its alarm must then be scheduled for that time.
+    static func reschedule(_ record: TaskRecord, to time: Date, in context: ModelContext = AppDatabase.context) throws {
+        record.status = .scheduled
+        record.scheduledFor = time
+        record.ringingAt = nil
+        record.acknowledgedAt = nil
+        try context.save()
+    }
+
+    /// Brings a locked-in day in line with the plan after the plan (or the day's extra tasks) changed:
+    /// tasks new to the day are added (at their plan time if it's still ahead, otherwise without a time),
+    /// and tasks no longer in the day are removed unless they were done or skipped during the day.
+    /// Tasks are matched by title. Returns the added records and the alarm keys of removed ones.
+    static func sync(_ date: LocalDate, with agenda: DayAgenda, planDefaultReadSeconds: Int?, now: Date = .now,
+                     in context: ModelContext = AppDatabase.context) throws -> (added: [TaskRecord], removedKeys: [String]) {
+        var unmatched = records(on: date, in: context)
+        var newItems: [CheckInItem] = []
+        for item in CheckInPlanner.items(for: agenda, planDefaultReadSeconds: planDefaultReadSeconds, now: now) {
+            if let index = unmatched.firstIndex(where: { $0.title == item.task.title && $0.isExtra == item.isExtra }) {
+                let record = unmatched.remove(at: index)
+                // Keep open tasks' details (exercise lists etc.) up to date with the plan.
+                if !record.status.isResolved, let data = try? JSONEncoder().encode(item.task), data != record.taskJSON {
+                    record.taskJSON = data
+                    record.category = item.task.category
+                }
+            } else {
+                newItems.append(item)
+            }
+        }
+
+        var removedKeys: [String] = []
+        for record in unmatched where !wasResolvedDuringDay(record) {
+            removedKeys.append(record.alarmKey)
+            context.delete(record)
+        }
+
+        var nextOrder = (records(on: date, in: context).map(\.order).max() ?? -1) + 1
+        var added: [TaskRecord] = []
+        for item in newItems {
+            let record = TaskRecord(date: date, order: nextOrder, task: item.task, isExtra: item.isExtra,
+                                    scheduledFor: item.timeWasMoved ? nil : item.time, status: .scheduled,
+                                    unlockSeconds: item.unlockSeconds, lockedInAt: now)
+            context.insert(record)
+            added.append(record)
+            nextOrder += 1
+        }
+        if !added.isEmpty || !removedKeys.isEmpty {
+            try context.save()
+        }
+        return (added, removedKeys)
+    }
+
     /// Logs a task as done or skipped.
     static func log(_ record: TaskRecord, as status: TaskStatus, now: Date = .now,
                     in context: ModelContext = AppDatabase.context) throws {
