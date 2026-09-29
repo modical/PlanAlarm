@@ -36,6 +36,8 @@ final class AlarmService {
 
     private var pendingWakeSchedule: WakeSchedule?
     private var isApplyingWakeSchedule = false
+    private var needsCheckInUpdate = false
+    private var isUpdatingCheckIn = false
     /// Alarms being scheduled right now; the orphan clean-up must not touch them.
     private var inFlightIDs: Set<UUID> = []
 
@@ -105,6 +107,90 @@ final class AlarmService {
                 await rechain(key: entry.key, startingAt: .now.addingTimeInterval(snoozeInterval))
             }
         }
+        updateCheckInReminders()
+    }
+
+    // MARK: - Check-in reminder
+
+    /// Keeps the check-in reminder rings in step with the wake-up schedule, the settings, and which days
+    /// are locked in: for today and tomorrow, if the day isn't locked in, ring every interval after the
+    /// wake-up time (4 times). Calls made while an update is running are merged.
+    func updateCheckInReminders() {
+        needsCheckInUpdate = true
+        guard !isUpdatingCheckIn else { return }
+        isUpdatingCheckIn = true
+        Task {
+            while needsCheckInUpdate {
+                needsCheckInUpdate = false
+                await syncCheckInReminders()
+            }
+            isUpdatingCheckIn = false
+        }
+    }
+
+    private func syncCheckInReminders() async {
+        guard authorization != .denied else { return }
+        let settings = self.settings
+        let interval = TimeInterval(max(5, settings.checkInReminderMinutes) * 60)
+        let today = LocalDate.today()
+        let now = Date.now
+        var keep: Set<String> = []
+
+        for date in [today, today.adding(days: 1)] {
+            let key = date.description
+            let wanted = settings.checkInReminderEnabled && !DayStore.isLockedIn(date)
+                ? settings.wakeSchedule.checkInReminderDates(on: date, interval: interval, count: 4).filter { $0 > now }
+                : []
+            let existing = registry.checkInChains[key] ?? []
+            if existing.filter({ $0.date > now }).map(\.date) == wanted {
+                if !wanted.isEmpty { keep.insert(key) }
+                continue
+            }
+            existing.forEach { try? manager.cancel(id: $0.id) }
+            registry.checkInChains[key] = nil
+            registry.save()
+            guard !wanted.isEmpty else { continue }
+
+            let rings = wanted.map { ScheduledRing(id: UUID(), date: $0) }
+            registry.checkInChains[key] = rings
+            registry.save()
+            var scheduled: [ScheduledRing] = []
+            for ring in rings {
+                let configuration = checkInConfiguration(id: ring.id, at: ring.date)
+                let didSchedule = await scheduleAlarm(id: ring.id, configuration: configuration, what: "the check-in reminder")
+                guard didSchedule else { break }
+                scheduled.append(ring)
+            }
+            registry.checkInChains[key] = scheduled
+            registry.save()
+            keep.insert(key)
+        }
+
+        for (key, rings) in registry.checkInChains where !keep.contains(key) {
+            rings.forEach { try? manager.cancel(id: $0.id) }
+            registry.checkInChains[key] = nil
+        }
+        registry.save()
+    }
+
+    private func checkInConfiguration(id: UUID, at date: Date) -> AlarmManager.AlarmConfiguration<PlanAlarmData> {
+        let alert = makeAlert(
+            title: "Check in: lock in your day",
+            stopLabel: "Stop",
+            secondaryButton: AlarmButton(text: "Open", textColor: .white, systemImageName: "checklist")
+        )
+        let attributes = AlarmAttributes(
+            presentation: AlarmPresentation(alert: alert),
+            metadata: PlanAlarmData(kind: .wake),
+            tintColor: .orange
+        )
+        return .alarm(
+            schedule: .fixed(date),
+            attributes: attributes,
+            stopIntent: nil,
+            secondaryIntent: OpenAppFromAlarmIntent(alarmID: id.uuidString),
+            sound: sound(for: settings.wakeTone)
+        )
     }
 
     // MARK: - Wake-up alarm
@@ -121,6 +207,7 @@ final class AlarmService {
                 await replaceWakeAlarms(with: next)
             }
             isApplyingWakeSchedule = false
+            updateCheckInReminders()
         }
     }
 

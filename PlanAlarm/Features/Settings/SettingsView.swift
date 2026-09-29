@@ -60,6 +60,11 @@ private struct AlarmSettingsSection: View {
             if let next = settings.wakeSchedule.nextAlarm(after: .now) {
                 LabeledContent("Next wake-up", value: next.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
             }
+            Toggle("Check-in reminder", isOn: $settings.checkInReminderEnabled)
+            if settings.checkInReminderEnabled {
+                Stepper("Every \(settings.checkInReminderMinutes) min after wake-up",
+                        value: $settings.checkInReminderMinutes, in: 15...120, step: 15)
+            }
             Stepper("Snooze: \(settings.snoozeMinutes) min", value: $settings.snoozeMinutes, in: 1...30)
             Stepper("Stop Alarm unlocks after \(settings.stopUnlockSeconds) s",
                     value: $settings.stopUnlockSeconds, in: 5...300, step: 5)
@@ -81,10 +86,16 @@ private struct AlarmSettingsSection: View {
         } header: {
             Text("Alarms")
         } footer: {
-            Text("A task alarm rings again every \(settings.snoozeMinutes) min, however it's stopped (Stop, slide, or the side and volume buttons), until you tap Stop Alarm in the app.")
+            Text("If you haven't locked in your day by then, the check-in reminder rings (up to 4 times). A task alarm rings again every \(settings.snoozeMinutes) min, however it's stopped (Stop, slide, or the side and volume buttons), until you tap Stop Alarm in the app.")
         }
         .onChange(of: settings.wakeSchedule) {
             alarms.applyWakeSchedule(settings.wakeSchedule)
+        }
+        .onChange(of: settings.checkInReminderEnabled) {
+            alarms.updateCheckInReminders()
+        }
+        .onChange(of: settings.checkInReminderMinutes) {
+            alarms.updateCheckInReminders()
         }
         .onChange(of: settings.wakeToneID) {
             alarms.applyWakeSchedule(settings.wakeSchedule)
@@ -181,5 +192,5 @@ enum AppInfo {
 #Preview {
     SettingsView()
         .environment(ImportController())
-        .modelContainer(for: [StoredPlan.self, AppSettings.self, ExtraTask.self], inMemory: true)
+        .modelContainer(for: [StoredPlan.self, AppSettings.self, ExtraTask.self, DayRecord.self, TaskRecord.self], inMemory: true)
 }

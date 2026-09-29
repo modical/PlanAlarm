@@ -7,7 +7,7 @@ import SwiftData
 enum AppDatabase {
     static let container: ModelContainer = {
         do {
-            return try ModelContainer(for: StoredPlan.self, AppSettings.self, ExtraTask.self)
+            return try ModelContainer(for: StoredPlan.self, AppSettings.self, ExtraTask.self, DayRecord.self, TaskRecord.self)
         } catch {
             fatalError("Couldn't open the PlanAlarm database: \(error)")
         }

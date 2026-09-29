@@ -76,5 +76,5 @@ struct PlanView: View {
 #Preview {
     PlanView()
         .environment(ImportController())
-        .modelContainer(for: [StoredPlan.self, AppSettings.self, ExtraTask.self], inMemory: true)
+        .modelContainer(for: [StoredPlan.self, AppSettings.self, ExtraTask.self, DayRecord.self, TaskRecord.self], inMemory: true)
 }

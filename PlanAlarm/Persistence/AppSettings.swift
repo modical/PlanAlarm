@@ -16,6 +16,9 @@ final class AppSettings {
     /// `AlarmTone` raw values.
     var taskToneID: String = AlarmTone.system.rawValue
     var wakeToneID: String = AlarmTone.system.rawValue
+    /// Ring again if the day isn't locked in this long after the wake-up alarm, and every interval after.
+    var checkInReminderEnabled: Bool = true
+    var checkInReminderMinutes: Int = 30
 
     init() {}
 

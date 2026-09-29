@@ -10,6 +10,8 @@ struct RootView: View {
     @State private var importer = ImportController()
     @State private var alarms = AlarmService.shared
     @State private var router = AppRouter.shared
+    /// The calendar day shown on the Today tab; updated whenever the app becomes active.
+    @State private var today = LocalDate.today()
     @Environment(\.scenePhase) private var scenePhase
 
     /// The task shown full screen until it's acknowledged.
@@ -25,7 +27,8 @@ struct RootView: View {
 
         TabView(selection: $selection) {
             Tab("Today", systemImage: "sun.max", value: AppTab.today) {
-                TodayView()
+                TodayView(date: today)
+                    .id(today)
             }
             Tab("Plan", systemImage: "list.bullet.rectangle", value: AppTab.plan) {
                 PlanView()
@@ -75,6 +78,7 @@ struct RootView: View {
                 unlockSeconds: alarms.unlockSeconds(for: pending),
                 snoozeCount: alarms.snoozeCount(for: pending)
             ) {
+                DayStore.markAcknowledged(alarmKey: pending.key, snoozeCount: alarms.snoozeCount(for: pending))
                 alarms.acknowledge(taskKey: pending.key)
                 router.presentedTaskKey = nil
                 router.showPendingTaskIfNeeded()
@@ -82,8 +86,14 @@ struct RootView: View {
         }
         .onChange(of: scenePhase, initial: true) {
             guard scenePhase == .active else { return }
+            today = .today()
+            // Until the day is locked in, opening the app goes to the morning check-in.
+            if !DayStore.isLockedIn(today) && importer.sheet == nil {
+                selection = .today
+            }
             Task {
                 await alarms.refresh()
+                syncTaskStatuses()
                 router.showPendingTaskIfNeeded()
             }
         }
@@ -91,14 +101,20 @@ struct RootView: View {
             // Catch alarms that go off while the app is open.
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(15))
+                syncTaskStatuses()
                 router.showPendingTaskIfNeeded()
             }
         }
         .environment(importer)
     }
+
+    /// Marks tasks whose alarm has started ringing.
+    private func syncTaskStatuses() {
+        DayStore.markRinging(alarms.tasksPendingAcknowledgement.map { (key: $0.key, firstAlarmAt: $0.firstAlarmAt) })
+    }
 }
 
 #Preview {
     RootView()
-        .modelContainer(for: [StoredPlan.self, AppSettings.self, ExtraTask.self], inMemory: true)
+        .modelContainer(for: [StoredPlan.self, AppSettings.self, ExtraTask.self, DayRecord.self, TaskRecord.self], inMemory: true)
 }

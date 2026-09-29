@@ -46,12 +46,14 @@ struct AlarmRegistry: Codable, Sendable {
     /// One-off debug alarms, kept so the clean-up in `AlarmService.refresh()` leaves them alone.
     var testAlarmIDs: [UUID] = []
     var tasks: [PendingTaskAlarm] = []
+    /// Check-in reminder rings per date ("YYYY-MM-DD"), for days not yet locked in.
+    var checkInChains: [String: [ScheduledRing]] = [:]
 
     static let defaultsKey = "alarmRegistry.v2"
 
     /// Every alarm ID the app knows about.
     var knownAlarmIDs: Set<UUID> {
-        Set(wakeAlarmIDs + testAlarmIDs + tasks.flatMap(\.alarmIDs))
+        Set(wakeAlarmIDs + testAlarmIDs + tasks.flatMap(\.alarmIDs) + checkInChains.values.flatMap { $0.map(\.id) })
     }
 
     static func load(from defaults: UserDefaults = .standard) -> AlarmRegistry {
@@ -93,5 +95,21 @@ struct AlarmRegistry: Codable, Sendable {
     static func chainLength(snoozeInterval: TimeInterval) -> Int {
         let needed = Int((3600 / max(60, snoozeInterval)).rounded(.up)) + 1
         return min(12, max(3, needed))
+    }
+}
+
+extension AlarmRegistry {
+    private enum CodingKeys: String, CodingKey {
+        case wakeAlarmIDs, testAlarmIDs, tasks, checkInChains
+    }
+
+    /// Fields added in later versions may be missing from saved data; they default to empty
+    /// instead of making the whole registry unreadable.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        wakeAlarmIDs = try container.decodeIfPresent([UUID].self, forKey: .wakeAlarmIDs) ?? []
+        testAlarmIDs = try container.decodeIfPresent([UUID].self, forKey: .testAlarmIDs) ?? []
+        tasks = try container.decodeIfPresent([PendingTaskAlarm].self, forKey: .tasks) ?? []
+        checkInChains = try container.decodeIfPresent([String: [ScheduledRing]].self, forKey: .checkInChains) ?? [:]
     }
 }

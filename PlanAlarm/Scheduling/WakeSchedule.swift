@@ -50,6 +50,16 @@ struct WakeSchedule: Hashable, Sendable {
     }
 }
 
+extension WakeSchedule {
+    /// Check-in reminder times for a date: `interval`, 2×`interval`, … after that day's wake-up time.
+    func checkInReminderDates(on date: LocalDate, interval: TimeInterval, count: Int,
+                              calendar: Calendar = .plan) -> [Date] {
+        guard let time = time(on: date.weekday), count > 0 else { return [] }
+        let wake = date.date(hour: time.hour, minute: time.minute, calendar: calendar)
+        return (1...count).map { wake.addingTimeInterval(TimeInterval($0) * interval) }
+    }
+}
+
 struct WakeAlarmGroup: Hashable, Sendable {
     var time: TimeOfDay
     var weekdays: [Weekday]
