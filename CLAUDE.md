@@ -102,6 +102,12 @@ and say exactly what to reply afterwards.
   missing key would wipe the registry and the orphan clean-up would cancel every alarm.
 - Swift 6 gotcha: don't build `Binding(get:set:)` from a stored callback property (Sendable warning); marking
   the callback `@MainActor` crashed the Swift 6.2 compiler in Xcode 26.6. Use local `@State` + `.onChange`.
+- Read screen (`TaskAlarmView`): countdown (foreground only), then Starting Now / Reschedule / Skip Today,
+  each of which stops the alarm. **All task state changes go through `TaskActions`** (Features/Shared) so
+  `TaskRecord`s, alarm chains and follow-ups stay in step. Follow-up (`Notifications/FollowUpService`):
+  local notification at start + duration (or +60 min), category with Done / Skipped actions handled by
+  `NotificationDelegate` (set in `AppDelegate`, so it works when the app was not running). Settings
+  `followUpEnabled`. Notification permission is asked the first time a follow-up is needed.
 - Plans can be deleted (active or archived). So history (phases 5–6) must **snapshot** task data
   (title, category, times) in its own records and must never depend on a `StoredPlan` still existing.
 
@@ -131,6 +137,6 @@ After each phase: commit, push, get a green CI run, then summarise what works an
    *(done in build 12 — waiting for on-device tests)*
 4. **Morning check-in** + scheduling, re-alarm, passed-time handling, Today timeline.
    *(done in build 15; Unlock Day in 16; undo, new time and live plan updates in 17 — waiting for on-device tests)*
-5. Read-to-dismiss, statuses, follow-up notifications.
+5. **Read-to-dismiss**, statuses, follow-up notifications. *(done in build 18 — waiting for on-device tests)*
 6. History and streaks (+ edge-case tests: rest days, skips, plan changes, DST).
 7. Expiry protection, onboarding, settings polish, README.

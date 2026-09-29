@@ -3,7 +3,7 @@
 A personal iPhone app that turns a daily plan (gym, stretches, study…) into reminders that ring like
 real alarms: through silent mode and Focus, over and over, until you open the app and read the task.
 
-> Status: **phase 4 (morning check-in)**. Plans load and can be edited; the wake-up alarm, morning check-in and task alarms work. The read-to-dismiss screen and follow-up notifications arrive in phase 5.
+> Status: **phase 5 (read screen and follow-ups)**. Plans, the morning check-in, task alarms with the read screen and "Did you finish?" notifications work. History and streaks arrive in phase 6.
 
 ## Getting the app (.ipa)
 
@@ -106,8 +106,13 @@ doesn't include them.
   or volume buttons. (iOS makes all of those stop the ring and apps can't change that, so PlanAlarm
   schedules the next rings in advance.) Backup rings cover about an hour; opening the app restarts them.
 - **Open task** on the alarm opens PlanAlarm on that task.
-- The alarm only ends when you tap **Stop Alarm** in the app. That button unlocks after a countdown
-  (Settings → Alarms, default 30 s) that only runs while the app is open on screen.
+- The alarm only ends in the app, on the task's **read screen**. After a countdown (Settings → Alarms,
+  default 30 s; it only runs while the app is open on screen), choose one of:
+  - **Starting Now:** the task is in progress. When its duration has passed (or after 60 min), a
+    **"Did you finish …?"** notification asks **Done** or **Skipped** (answer right from the notification;
+    turn it off in Settings → Follow-up).
+  - **Reschedule:** pick a later time today; the alarm rings again then.
+  - **Skip Today.**
 - **Tones:** Settings → Alarms → Task alarm tone / Wake-up tone. "iPhone Alarm" rings continuously; the
   other tones play for up to 30 seconds per ring (an iOS limit).
 - Whenever you open the app while a task is waiting, it goes straight to that task.
