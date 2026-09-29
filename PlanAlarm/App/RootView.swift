@@ -78,10 +78,17 @@ struct RootView: View {
                 unlockSeconds: alarms.unlockSeconds(for: pending),
                 snoozeCount: alarms.snoozeCount(for: pending)
             ) {
-                DayStore.markAcknowledged(alarmKey: pending.key, snoozeCount: alarms.snoozeCount(for: pending))
-                alarms.acknowledge(taskKey: pending.key)
+                TaskActions.start(pending)
+                showNextPendingTask()
+            } onReschedule: { time in
                 router.presentedTaskKey = nil
-                router.showPendingTaskIfNeeded()
+                Task {
+                    await TaskActions.reschedule(pending, to: time)
+                    router.showPendingTaskIfNeeded()
+                }
+            } onSkip: {
+                TaskActions.skip(pending)
+                showNextPendingTask()
             }
         }
         .onChange(of: scenePhase, initial: true) {
@@ -106,6 +113,11 @@ struct RootView: View {
             }
         }
         .environment(importer)
+    }
+
+    private func showNextPendingTask() {
+        router.presentedTaskKey = nil
+        router.showPendingTaskIfNeeded()
     }
 
     /// Marks tasks whose alarm has started ringing.

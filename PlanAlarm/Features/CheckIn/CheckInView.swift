@@ -168,9 +168,7 @@ struct CheckInView: View {
 
         let yesterday = date.adding(days: -1)
         // Anything older than yesterday is no longer asked about.
-        for key in DayStore.markUnlogged(before: yesterday, in: modelContext) {
-            alarms.acknowledge(taskKey: key)
-        }
+        TaskActions.removed(taskKeys: DayStore.markUnlogged(before: yesterday, in: modelContext))
         carryOver = DayStore.unresolvedRecords(on: yesterday, in: modelContext)
     }
 
@@ -181,8 +179,7 @@ struct CheckInView: View {
             do {
                 for record in carryOver {
                     if let answer = answers[record.id] {
-                        try DayStore.log(record, as: answer, in: modelContext)
-                        alarms.acknowledge(taskKey: record.alarmKey)
+                        TaskActions.log(record, as: answer, in: modelContext)
                     }
                 }
                 let records = try DayStore.lockIn(date: date, dayNote: dayNote, planName: planName, items: items, in: modelContext)

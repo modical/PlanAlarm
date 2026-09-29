@@ -1,22 +1,29 @@
 import SwiftUI
 
-/// Shown full screen while a task alarm is waiting to be stopped. The Stop Alarm button unlocks after a
-/// countdown that only runs while the app is on screen. Until then the alarm keeps coming back.
-/// (Phase 5 adds the Starting now / Reschedule / Skip today actions.)
+/// The read-to-dismiss screen, shown full screen while a task alarm is waiting. The whole task is shown
+/// in large type; after a countdown (which only runs while the app is on screen) three choices unlock,
+/// and each one stops the alarm: Starting Now, Reschedule, or Skip Today. Until then the alarm keeps
+/// coming back.
 struct TaskAlarmView: View {
     let pending: PendingTaskAlarm
     let unlockSeconds: Int
     let snoozeCount: Int
-    let onStop: () -> Void
+    let onStart: () -> Void
+    let onReschedule: (Date) -> Void
+    let onSkip: () -> Void
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var remaining: Double
+    @State private var isPickingTime = false
 
-    init(pending: PendingTaskAlarm, unlockSeconds: Int, snoozeCount: Int, onStop: @escaping () -> Void) {
+    init(pending: PendingTaskAlarm, unlockSeconds: Int, snoozeCount: Int,
+         onStart: @escaping () -> Void, onReschedule: @escaping (Date) -> Void, onSkip: @escaping () -> Void) {
         self.pending = pending
         self.unlockSeconds = max(1, unlockSeconds)
         self.snoozeCount = snoozeCount
-        self.onStop = onStop
+        self.onStart = onStart
+        self.onReschedule = onReschedule
+        self.onSkip = onSkip
         _remaining = State(initialValue: Double(max(1, unlockSeconds)))
     }
 
@@ -34,24 +41,7 @@ struct TaskAlarmView: View {
                 .padding()
             }
             .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 10) {
-                    if !isUnlocked {
-                        ProgressView(value: Double(unlockSeconds) - remaining, total: Double(unlockSeconds))
-                        Text("Stop Alarm unlocks in \(Int(remaining.rounded(.up))) s")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                    Button(action: onStop) {
-                        Label("Stop Alarm", systemImage: isUnlocked ? "stop.circle.fill" : "lock.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(!isUnlocked)
-                }
-                .padding()
-                .background(.bar)
+                actionBar
             }
             .navigationBarTitleDisplayMode(.inline)
             // The countdown only runs while the app is in the foreground.
@@ -64,7 +54,51 @@ struct TaskAlarmView: View {
                     }
                 }
             }
+            .sheet(isPresented: $isPickingTime) {
+                NewTimeSheet(title: pending.task.title) { time in
+                    onReschedule(time)
+                }
+            }
         }
+    }
+
+    private var actionBar: some View {
+        VStack(spacing: 10) {
+            if isUnlocked {
+                Text("Stop the alarm:")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            } else {
+                ProgressView(value: Double(unlockSeconds) - remaining, total: Double(unlockSeconds))
+                Label("Read the task — the buttons unlock in \(Int(remaining.rounded(.up))) s", systemImage: "lock.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Button(action: onStart) {
+                Label("Starting Now", systemImage: "play.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            HStack(spacing: 10) {
+                Button {
+                    isPickingTime = true
+                } label: {
+                    Label("Reschedule", systemImage: "clock.arrow.circlepath")
+                        .frame(maxWidth: .infinity)
+                }
+                Button(action: onSkip) {
+                    Label("Skip Today", systemImage: "forward.fill")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+        }
+        .disabled(!isUnlocked)
+        .padding()
+        .background(.bar)
     }
 
     private var statusText: String {

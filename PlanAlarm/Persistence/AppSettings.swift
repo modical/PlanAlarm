@@ -19,6 +19,8 @@ final class AppSettings {
     /// Ring again if the day isn't locked in this long after the wake-up alarm, and every interval after.
     var checkInReminderEnabled: Bool = true
     var checkInReminderMinutes: Int = 30
+    /// "Did you finish …?" notification after a task starts.
+    var followUpEnabled: Bool = true
 
     init() {}
 

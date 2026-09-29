@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UIKit
 
 struct SettingsView: View {
     @Query(filter: #Predicate<StoredPlan> { $0.isActive == true }) private var activePlans: [StoredPlan]
@@ -11,6 +12,7 @@ struct SettingsView: View {
             List {
                 if let settings = settingsRecords.first {
                     AlarmSettingsSection(settings: settings)
+                    FollowUpSettingsSection(settings: settings)
                 }
 
                 Section("Plan") {
@@ -99,6 +101,45 @@ private struct AlarmSettingsSection: View {
         }
         .onChange(of: settings.wakeToneID) {
             alarms.applyWakeSchedule(settings.wakeSchedule)
+        }
+    }
+}
+
+private struct FollowUpSettingsSection: View {
+    @Bindable var settings: AppSettings
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var permission: FollowUpService.Permission?
+
+    var body: some View {
+        Section {
+            Toggle("“Did you finish?” reminder", isOn: $settings.followUpEnabled)
+            if settings.followUpEnabled && permission == .denied {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Notifications are off for PlanAlarm, so this reminder can't appear.",
+                          systemImage: "bell.slash")
+                        .font(.subheadline)
+                    Button("Open Settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                }
+                .foregroundStyle(.orange)
+            }
+        } header: {
+            Text("Follow-up")
+        } footer: {
+            Text("After you tap Starting Now, a notification asks whether you finished, once the task's duration has passed (or after 60 minutes). Answer Done or Skipped right from the notification.")
+        }
+        .task(id: scenePhase) {
+            permission = await FollowUpService.permission()
+        }
+        .onChange(of: settings.followUpEnabled) {
+            guard settings.followUpEnabled else { return }
+            Task {
+                await FollowUpService.ensurePermission()
+                permission = await FollowUpService.permission()
+            }
         }
     }
 }

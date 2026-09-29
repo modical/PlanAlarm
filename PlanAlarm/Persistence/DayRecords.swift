@@ -247,14 +247,15 @@ enum DayStore {
         try context.save()
     }
 
-    /// The task's alarm was stopped in the app.
+    /// "Starting now" on the read screen: the task is in progress. `snoozeCount` rings are added to its total.
     static func markAcknowledged(alarmKey: String, snoozeCount: Int, now: Date = .now,
                                  in context: ModelContext = AppDatabase.context) {
         guard let record = record(forAlarmKey: alarmKey, in: context), !record.status.isResolved else { return }
         record.status = .inProgress
         record.acknowledgedAt = now
+        record.startedAt = now
         record.ringingAt = record.ringingAt ?? record.scheduledFor
-        record.snoozeCount = snoozeCount
+        record.snoozeCount += snoozeCount
         try? context.save()
     }
 

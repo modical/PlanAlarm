@@ -142,21 +142,12 @@ struct TodayTimelineView: View {
         do {
             let result = try DayStore.sync(date, with: currentAgenda, planDefaultReadSeconds: currentPlan?.defaultReadSeconds,
                                            in: modelContext)
-            for key in result.removedKeys {
-                alarms.acknowledge(taskKey: key)
-            }
+            TaskActions.removed(taskKeys: result.removedKeys)
             for record in result.added {
-                scheduleAlarm(for: record)
+                TaskActions.scheduleAlarm(for: record)
             }
         } catch {
             errorText = error.localizedDescription
-        }
-    }
-
-    private func scheduleAlarm(for record: TaskRecord) {
-        guard let task = record.task, let time = record.scheduledFor, time > .now else { return }
-        Task {
-            await alarms.scheduleTaskAlarm(for: task, key: record.alarmKey, at: time, unlockSeconds: record.unlockSeconds)
         }
     }
 
@@ -166,11 +157,7 @@ struct TodayTimelineView: View {
             return
         }
         do {
-            try DayStore.reschedule(record, to: time, in: modelContext)
-            if router.presentedTaskKey == record.alarmKey {
-                router.presentedTaskKey = nil
-            }
-            scheduleAlarm(for: record)
+            try TaskActions.reschedule(record, to: time, in: modelContext)
         } catch {
             errorText = error.localizedDescription
         }
@@ -178,9 +165,8 @@ struct TodayTimelineView: View {
 
     private func undo(_ record: TaskRecord) {
         do {
-            try DayStore.undo(record, in: modelContext)
+            try TaskActions.undo(record, in: modelContext)
             now = .now
-            scheduleAlarm(for: record)
         } catch {
             errorText = error.localizedDescription
         }
@@ -188,9 +174,7 @@ struct TodayTimelineView: View {
 
     private func unlockDay() {
         do {
-            for key in try DayStore.unlock(date, in: modelContext) {
-                alarms.acknowledge(taskKey: key)
-            }
+            TaskActions.removed(taskKeys: try DayStore.unlock(date, in: modelContext))
             alarms.updateCheckInReminders()
         } catch {
             errorText = error.localizedDescription
@@ -198,12 +182,7 @@ struct TodayTimelineView: View {
     }
 
     private func log(_ record: TaskRecord, as status: TaskStatus) {
-        do {
-            try DayStore.log(record, as: status, in: modelContext)
-            alarms.acknowledge(taskKey: record.alarmKey)
-        } catch {
-            errorText = error.localizedDescription
-        }
+        TaskActions.log(record, as: status, in: modelContext)
     }
 }
 

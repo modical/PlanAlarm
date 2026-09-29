@@ -288,6 +288,37 @@ struct DayStoreTests {
     }
 }
 
+struct FollowUpTests {
+    @Test func followUpComesAfterTheTaskDuration() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(FollowUpService.followUpDate(startedAt: start, durationMinutes: 75) == start.addingTimeInterval(75 * 60))
+        #expect(FollowUpService.followUpDate(startedAt: start, durationMinutes: nil) == start.addingTimeInterval(60 * 60))
+    }
+}
+
+@MainActor
+struct StartedTaskTests {
+    @Test func startingAddsSnoozesAndTimestamps() throws {
+        let container = try ModelContainer(for: DayRecord.self, TaskRecord.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        let day = Fixtures.date("2026-10-05")
+        let task = PlanTask(taskRef: nil, title: "Gym", category: "gym", summary: nil, sections: [],
+                            durationMinutes: 60, readSeconds: 30, suggestedTime: nil)
+        let records = try DayStore.lockIn(date: day, dayNote: nil, planName: nil,
+                                          items: [CheckInItem(id: 0, task: task, isExtra: false, time: day.date(hour: 9, minute: 0))],
+                                          in: context)
+        records[0].snoozeCount = 1 // rings before an earlier reschedule
+        let start = day.date(hour: 9, minute: 12)
+        DayStore.markAcknowledged(alarmKey: records[0].alarmKey, snoozeCount: 2, now: start, in: context)
+        #expect(records[0].status == .inProgress)
+        #expect(records[0].startedAt == start)
+        #expect(records[0].acknowledgedAt == start)
+        #expect(records[0].ringingAt == day.date(hour: 9, minute: 0))
+        #expect(records[0].snoozeCount == 3)
+    }
+}
+
 struct AlarmRegistryCompatibilityTests {
     @Test func olderSavedDataStillLoads() throws {
         let defaults = try #require(UserDefaults(suiteName: "RegistryCompat-\(UUID().uuidString)"))
