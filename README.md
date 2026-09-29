@@ -76,20 +76,31 @@ Loading a new plan archives the old one (Plan tab → Archived plans).
 
 A date you changed on its own keeps its own tasks, even if you later change "every Monday".
 
+**Days outside the plan (or with no plan):** you can still add, edit and delete tasks there. They're kept
+in the app rather than in the plan file, so they stay when you load a new plan, but **Share Plan as File**
+doesn't include them.
+
 ## How the alarms behave
 
 - **Wake-up alarm:** Settings → Alarms → Wake-up alarm (default 07:00 every day; change or turn off single days).
-- **Task alarms** ring through silent mode and Focus. They have two buttons:
-  - **Stop:** iOS draws this button itself and its label can't be changed (since iOS 26.1). Pressing it
-    doesn't dismiss the task: the alarm **rings again after the snooze length** (Settings → Alarms → Snooze).
-  - **Open task:** opens PlanAlarm on that task. The alarm still comes back after the snooze length unless
-    you tap **I've Read It** in the app.
+- **Task alarms** ring through silent mode and Focus, and **come back every snooze interval** (Settings →
+  Alarms → Snooze, default 5 min) **however they're stopped**: the Stop button, slide-to-stop, or the side
+  or volume buttons. (iOS makes all of those stop the ring and apps can't change that, so PlanAlarm
+  schedules the next rings in advance.) Backup rings cover about an hour; opening the app restarts them.
+- **Open task** on the alarm opens PlanAlarm on that task.
+- The alarm only ends when you tap **Stop Alarm** in the app. That button unlocks after a countdown
+  (Settings → Alarms, default 30 s) that only runs while the app is open on screen.
+- **Tones:** Settings → Alarms → Task alarm tone / Wake-up tone. "iPhone Alarm" rings continuously; the
+  other tones play for up to 30 seconds per ring (an iOS limit).
 - Whenever you open the app while a task is waiting, it goes straight to that task.
 
 ## Known iOS limitations
 
-- The alarm's Stop button (on the lock screen and in the alarm banner) can't be removed or renamed on iOS 26.1+.
-  That's why pressing it re-arms the alarm instead of ending it.
+- The alarm's Stop button and slide-to-stop (on the lock screen and in the alarm banner) can't be removed or
+  renamed on iOS 26.1+, and the side and volume buttons always stop an app's alarm (Apple's AlarmKit FAQ).
+  That's why PlanAlarm schedules backup rings instead of relying on those buttons.
+- Custom alarm tones must be under 30 seconds and may play once per ring; only the iPhone's own alarm sound
+  loops. Sounds added from Files aren't supported (iOS doesn't reliably play them for alarms).
 
 ## Switching to a paid Apple Developer account / TestFlight (later)
 

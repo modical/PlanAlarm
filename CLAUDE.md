@@ -61,14 +61,27 @@ and say exactly what to reply afterwards.
     initializer is deprecated in 26.1 ("will no longer be used"): iOS draws its own Stop button. We use
     `#available(iOS 26.1, *)` and fall back to the stop-label initializer on 26.0 ("Snooze N min").
   - A widget extension is required only for countdown presentations. We use alert-only alarms and never
-    `secondaryButtonBehavior: .countdown`, so **no extension**. Snooze = our stop intent re-schedules.
+    `secondaryButtonBehavior: .countdown`, so **no extension**.
+  - Apple's AlarmKit FAQ (developer.apple.com/forums/thread/797158): **every physical button stops** the
+    alerting alarm(s); slide-to-stop can't be removed. The stop intent is *supposed* to run on any dismissal,
+    but developers report it often doesn't (and on-device testing confirmed Stop didn't re-arm in build 11).
   - `AlarmManager.alarms` is `get throws`; `Alarm` has no metadata, hence `AlarmRegistry`.
   - Button intents must be `LiveActivityIntent`; they run in the app process. "Open" intents use
     `supportedModes = .foreground(.immediate)`. `perform()` is nonisolated → hop via `AlarmService.handle…`.
   - Info.plist needs `NSAlarmKitUsageDescription` (non-empty) or scheduling fails.
-- Task alarm cycle: schedule (fixed date) → Stop ⇒ `SnoozeTaskIntent` re-arms after snooze → "Open task" ⇒
-  opens app, stops alarm, re-arms as a safety net → only in-app acknowledgement cancels. On app activation,
-  `AlarmService.refresh()` re-arms any unacknowledged task whose alarm vanished and restores wake alarms.
+  - Custom sounds: `AlertSound.named("file")` must be in the **app bundle** (Library/Sounds reportedly
+    doesn't play), **< 30 s**, and may play once per ring instead of looping. Tones: `Resources/Sounds/tone-*.wav`
+    (generated in-house, no third-party audio); `AlarmTone` enum; `.system` = `.default` (loops).
+- Task alarm design: each task gets a **chain of rings scheduled in advance** (one per snooze interval,
+  covering ~1 h, 3–12 rings; `AlarmRegistry.chainLength`), so however a ring is stopped the next one follows.
+  When `SnoozeTaskIntent` does run, the chain is re-timed from now + snooze. "Open task" stops the ring,
+  re-times, and opens the app. Only **Stop Alarm** in the app (after the unlock countdown: Settings
+  `stopUnlockSeconds`, default 30 s; a task's own readSeconds wins; runs only while in the foreground)
+  cancels the chain. `AlarmService.refresh()` (app active): cancels AlarmKit alarms not in the registry,
+  restores wake alarms, restarts chains that ran out.
+- `ExtraTask` (SwiftData): tasks the user adds on dates outside the plan or with no plan. Kept outside the
+  plan file (no schema change), so they survive plan replacement but aren't in shared `.dayplan` files.
+  `DayAgenda` = plan day tasks followed by that date's extras; later phases must schedule from `DayAgenda`.
 - Plans can be deleted (active or archived). So history (phases 5–6) must **snapshot** task data
   (title, category, times) in its own records and must never depend on a `StoredPlan` still existing.
 
@@ -93,8 +106,9 @@ After each phase: commit, push, get a green CI run, then summarise what works an
    reset day, new empty plan, delete active/archived plans, share plan as `.dayplan`.
    *(done in build 9)*
 3. **AlarmKit core** — permissions, wake-up alarm, one test task alarm with stop-rearms / open-task behaviour,
-   hidden debug tools (Settings → tap "Build" 7×). *(done in build 11 — waiting for on-device alarm tests;
-   phases 2/2b also not yet confirmed on the phone)*
+   hidden debug tools (Settings → tap "Build" 7×). Build 11 tested on the phone: Stop didn't snooze.
+   **3b. Owner feedback** — backup-ring chains, Stop Alarm unlock timer, alarm tones, tasks on any day.
+   *(done in build 12 — waiting for on-device tests)*
 4. Morning check-in + scheduling, re-alarm, passed-time handling.
 5. Read-to-dismiss, statuses, follow-up notifications.
 6. History and streaks (+ edge-case tests: rest days, skips, plan changes, DST).
