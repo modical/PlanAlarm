@@ -89,6 +89,8 @@ and say exactly what to reply afterwards.
   up to 5 min; overlap warnings by duration; blocking reasons). Today tab shows `CheckInView` until the date
   has a `DayRecord`, then `TodayTimelineView`. Opening the app switches to Today until locked in.
   Yesterday's unresolved tasks must be answered; older ones become `unlogged` automatically.
+  **Unlock Day** (`DayStore.unlock`): deletes the `DayRecord` and every record not resolved during the day
+  (done, or skipped after check-in), cancels their alarms; the check-in then leaves out already-finished titles.
 - Check-in reminder: `AlarmService.updateCheckInReminders()` keeps 4 rings (every `checkInReminderMinutes`
   after that day's wake time) for today and tomorrow while not locked in; `registry.checkInChains`.
 - `AlarmRegistry` decodes missing fields as empty (custom `init(from:)`): **add new fields there too**, or a
@@ -123,7 +125,7 @@ After each phase: commit, push, get a green CI run, then summarise what works an
    **3b. Owner feedback** — backup-ring chains, Stop Alarm unlock timer, alarm tones, tasks on any day.
    *(done in build 12 — waiting for on-device tests)*
 4. **Morning check-in** + scheduling, re-alarm, passed-time handling, Today timeline.
-   *(done in build 15 — waiting for on-device tests)*
+   *(done in build 15; Unlock Day added in build 16 — waiting for on-device tests)*
 5. Read-to-dismiss, statuses, follow-up notifications.
 6. History and streaks (+ edge-case tests: rest days, skips, plan changes, DST).
 7. Expiry protection, onboarding, settings polish, README.

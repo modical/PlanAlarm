@@ -91,7 +91,8 @@ doesn't include them.
 3. Tap **Lock In My Day**. Every task gets its alarm.
 4. If you don't lock in, a **check-in reminder** rings 30 min after the wake-up alarm, then every 30 min
    (4 times). Change or turn it off in Settings → Alarms.
-5. After locking in, **Today** shows your timeline. Change a task's time there (its alarm moves), or mark it
+5. After locking in, **Today** shows your timeline. Tap the **open-lock button** (top right) to **unlock the day**
+   and redo the check-in (tasks already done or skipped stay). Change a task's time there (its alarm moves), or mark it
    **Done** / **Skip**.
 
 ## How the alarms behave
