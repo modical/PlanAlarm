@@ -41,7 +41,7 @@ struct ScreenSmokeTests {
         try DayStore.log(yesterday[0], as: .done, in: context)
         let todays = try lockIn(0, [("Gym", "gym"), ("Study", "study"), ("Stretch", "mobility")])
         try DayStore.log(todays[0], as: .done, in: context)
-        DayStore.markAcknowledged(alarmKey: todays[1].alarmKey, snoozeCount: 2, in: context)
+        DayStore.markStarted(alarmKey: todays[1].alarmKey, snoozeCount: 2, in: context)
     }
 
     /// iPhone screen sizes in points: SE, mini, 16/17, 17 Pro, Plus/Pro Max (16 Pro Max is 440 wide).

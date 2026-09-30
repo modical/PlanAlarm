@@ -5,6 +5,8 @@ import SwiftUI
 struct HistoryView: View {
     @Query private var dayRecords: [DayRecord]
     @Query private var taskRecords: [TaskRecord]
+    @Query(filter: #Predicate<StoredPlan> { $0.isActive == true }) private var activePlans: [StoredPlan]
+    @Query private var extras: [ExtraTask]
     @State private var month: (year: Int, month: Int) = {
         let today = LocalDate.today()
         return (today.year, today.month)
@@ -14,12 +16,30 @@ struct HistoryView: View {
     private var today: LocalDate { .today() }
     private var days: [LocalDate: HistoryDay] { HistoryDay.days(dayRecords: dayRecords, taskRecords: taskRecords) }
 
+    /// Past days without a check-in on which nothing was planned (the plan had no tasks and there were no
+    /// extra tasks): rest days, not missed days.
+    private func unscheduledDates(in days: [LocalDate: HistoryDay]) -> Set<LocalDate> {
+        guard let first = days.keys.min() else { return [] }
+        let plan = activePlans.first.flatMap { PlanStore.plan(for: $0) }
+        var result: Set<LocalDate> = []
+        var date = first
+        while date < today {
+            if days[date] == nil && DayAgenda(date: date, plan: plan, extras: extras).day.tasks.isEmpty {
+                result.insert(date)
+            }
+            date = date.adding(days: 1)
+        }
+        return result
+    }
+
     var body: some View {
         NavigationStack {
             let historyDays = days
+            let unscheduled = unscheduledDates(in: historyDays)
             List {
                 Section {
-                    MonthCalendar(year: month.year, month: month.month, days: historyDays, today: today) { date in
+                    MonthCalendar(year: month.year, month: month.month, days: historyDays, unscheduled: unscheduled,
+                                  today: today) { date in
                         selectedDate = date
                     } onChangeMonth: { delta in
                         changeMonth(by: delta)
@@ -33,7 +53,7 @@ struct HistoryView: View {
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    StreaksSection(days: historyDays, today: today)
+                    StreaksSection(days: historyDays, unscheduled: unscheduled, today: today)
                     CompletionSection(days: historyDays, today: today)
                 }
             }
@@ -46,7 +66,8 @@ struct HistoryView: View {
                 }
             }
             .sheet(item: $selectedDate) { date in
-                DayHistoryView(date: date, kind: HistoryCalculator.kind(on: date, days: historyDays, today: today))
+                DayHistoryView(date: date, kind: HistoryCalculator.kind(on: date, days: historyDays, today: today,
+                                                                        unscheduled: unscheduled))
             }
         }
     }
@@ -66,6 +87,7 @@ private struct MonthCalendar: View {
     let year: Int
     let month: Int
     let days: [LocalDate: HistoryDay]
+    let unscheduled: Set<LocalDate>
     let today: LocalDate
     let onSelect: (LocalDate) -> Void
     let onChangeMonth: (Int) -> Void
@@ -110,7 +132,8 @@ private struct MonthCalendar: View {
                     HStack(spacing: 4) {
                         ForEach(Array(week.enumerated()), id: \.offset) { _, date in
                             if let date {
-                                DayCell(date: date, kind: HistoryCalculator.kind(on: date, days: days, today: today),
+                                DayCell(date: date, kind: HistoryCalculator.kind(on: date, days: days, today: today,
+                                                                                 unscheduled: unscheduled),
                                         isToday: date == today)
                                     .onTapGesture { onSelect(date) }
                             } else {
@@ -209,10 +232,11 @@ extension DayKind {
 
 private struct StreaksSection: View {
     let days: [LocalDate: HistoryDay]
+    let unscheduled: Set<LocalDate>
     let today: LocalDate
 
     var body: some View {
-        let perfect = HistoryCalculator.perfectDayStreak(days: days, today: today)
+        let perfect = HistoryCalculator.perfectDayStreak(days: days, today: today, unscheduled: unscheduled)
         let categories = HistoryCalculator.categoryStreaks(days: days, today: today).sorted { $0.key < $1.key }
         Section {
             StreakRow(title: "Perfect days", systemImage: "star.fill", streak: perfect)
@@ -222,7 +246,7 @@ private struct StreaksSection: View {
         } header: {
             Text("Streaks")
         } footer: {
-            Text("A perfect day has every task done. Skipped or unlogged tasks and days without a check-in break it; rest days don't. Today counts once it's complete.")
+            Text("A perfect day has every task done. Skipped or unlogged tasks, and days with planned tasks but no check-in, break it; days with nothing planned don't. Today counts once it's complete.")
         }
     }
 }

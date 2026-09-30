@@ -173,6 +173,11 @@ struct CheckInView: View {
     }
 
     private func lockIn() {
+        // Times may have passed while the screen was open.
+        if let reason = CheckInPlanner.blockingReason(items: items, unansweredCarryOver: unansweredCount, now: .now) {
+            errorText = reason
+            return
+        }
         isLockingIn = true
         Task {
             defer { isLockingIn = false }
@@ -183,10 +188,7 @@ struct CheckInView: View {
                     }
                 }
                 let records = try DayStore.lockIn(date: date, dayNote: dayNote, planName: planName, items: items, in: modelContext)
-                for record in records where record.status == .scheduled {
-                    guard let task = record.task, let time = record.scheduledFor else { continue }
-                    await alarms.scheduleTaskAlarm(for: task, key: record.alarmKey, at: time, unlockSeconds: record.unlockSeconds)
-                }
+                await alarms.scheduleTaskAlarms(records.compactMap(TaskActions.alarmRequest(for:)))
                 alarms.updateCheckInReminders()
             } catch {
                 errorText = error.localizedDescription

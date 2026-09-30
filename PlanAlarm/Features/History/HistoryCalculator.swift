@@ -59,9 +59,13 @@ enum HistoryCalculator {
         category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    static func kind(on date: LocalDate, days: [LocalDate: HistoryDay], today: LocalDate) -> DayKind {
+    /// `unscheduled`: past dates with no check-in on which nothing was planned; they count as rest days,
+    /// not missed days.
+    static func kind(on date: LocalDate, days: [LocalDate: HistoryDay], today: LocalDate,
+                     unscheduled: Set<LocalDate> = []) -> DayKind {
         guard let day = days[date] else {
             if let first = days.keys.min(), date > first, date < today {
+                if unscheduled.contains(date) { return .restDay }
                 return .missed
             }
             return .noData
@@ -74,12 +78,13 @@ enum HistoryCalculator {
         return done == 0 ? .noneDone : .partial
     }
 
-    static func perfectDayStreak(days: [LocalDate: HistoryDay], today: LocalDate) -> Streak {
+    static func perfectDayStreak(days: [LocalDate: HistoryDay], today: LocalDate,
+                                 unscheduled: Set<LocalDate> = []) -> Streak {
         guard let first = days.keys.min(), first <= today else { return Streak() }
         var streak = Streak()
         var date = first
         while date <= today {
-            switch kind(on: date, days: days, today: today) {
+            switch kind(on: date, days: days, today: today, unscheduled: unscheduled) {
             case .allDone:
                 streak.current += 1
                 streak.best = max(streak.best, streak.current)

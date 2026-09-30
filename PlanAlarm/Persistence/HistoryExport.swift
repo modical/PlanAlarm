@@ -65,24 +65,24 @@ struct HistoryExport: Codable, Sendable {
 }
 
 /// The export shared through the share sheet as a .json file.
+/// The export shared through the share sheet as a .json file. The file is built only when it's actually
+/// shared, not every time a screen showing the Export button is drawn.
 struct HistoryExportFile: Transferable {
-    let fileName: String
-    let data: Data
-
-    @MainActor
-    init(context: ModelContext = AppDatabase.context, now: Date = .now) {
-        let days = (try? context.fetch(FetchDescriptor<DayRecord>())) ?? []
-        let tasks = (try? context.fetch(FetchDescriptor<TaskRecord>())) ?? []
-        data = (try? HistoryExport(dayRecords: days, taskRecords: tasks, exportedAt: now).encoded()) ?? Data()
-        fileName = "PlanAlarm-history-\(LocalDate(now).description).json"
-    }
-
     static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(exportedContentType: .json) { file in
-            let url = URL.temporaryDirectory.appending(path: file.fileName)
-            try file.data.write(to: url, options: .atomic)
+        FileRepresentation(exportedContentType: .json) { _ in
+            let (fileName, data) = try await MainActor.run { try makeFile() }
+            let url = URL.temporaryDirectory.appending(path: fileName)
+            try data.write(to: url, options: .atomic)
             return SentTransferredFile(url)
         }
+    }
+
+    @MainActor
+    static func makeFile(context: ModelContext = AppDatabase.context, now: Date = .now) throws -> (String, Data) {
+        let days = try context.fetch(FetchDescriptor<DayRecord>())
+        let tasks = try context.fetch(FetchDescriptor<TaskRecord>())
+        let data = try HistoryExport(dayRecords: days, taskRecords: tasks, exportedAt: now).encoded()
+        return ("PlanAlarm-history-\(LocalDate(now).description).json", data)
     }
 }
 

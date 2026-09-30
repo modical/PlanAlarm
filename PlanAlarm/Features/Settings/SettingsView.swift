@@ -109,7 +109,7 @@ private struct AlarmSettingsSection: View {
 
 /// When this install expires (free Apple ID installs last 7 days), and the welcome screens.
 private struct AppInstallSection: View {
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = true
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var expiry = AppExpiry.current()
 

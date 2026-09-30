@@ -96,22 +96,33 @@ struct RootView: View {
             }
         }
         .onChange(of: scenePhase, initial: true) {
-            guard scenePhase == .active else { return }
-            today = .today()
-            // Until the day is locked in, opening the app goes to the morning check-in.
-            if !DayStore.isLockedIn(today) && importer.sheet == nil {
-                selection = .today
-            }
-            Task {
-                await alarms.refresh()
-                syncTaskStatuses()
-                router.showPendingTaskIfNeeded()
+            switch scenePhase {
+            case .active:
+                today = .today()
+                // Until the day is locked in, opening the app goes to the morning check-in.
+                if !DayStore.isLockedIn(today) && importer.sheet == nil {
+                    selection = .today
+                }
+                Task {
+                    await TaskActions.reconcile()
+                    await alarms.refresh()
+                    syncTaskStatuses()
+                    router.showPendingTaskIfNeeded()
+                }
+            case .background:
+                // Plan edits may have given today or tomorrow its first tasks (or removed the last ones).
+                alarms.updateCheckInReminders()
+            default:
+                break
             }
         }
         .task {
-            // Catch alarms that go off while the app is open.
+            // Catch alarms that go off while the app is open, and the date changing at midnight.
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(15))
+                if LocalDate.today() != today {
+                    today = .today()
+                }
                 syncTaskStatuses()
                 router.showPendingTaskIfNeeded()
             }

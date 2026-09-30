@@ -13,7 +13,7 @@ enum TaskActions {
     static func start(_ pending: PendingTaskAlarm, in context: ModelContext = AppDatabase.context) {
         let snoozes = alarms.snoozeCount(for: pending)
         alarms.acknowledge(taskKey: pending.key)
-        DayStore.markAcknowledged(alarmKey: pending.key, snoozeCount: snoozes, in: context)
+        DayStore.markStarted(alarmKey: pending.key, snoozeCount: snoozes, in: context)
         let now = Date.now
         Task {
             await FollowUpService.schedule(taskKey: pending.key, title: pending.task.title,
@@ -23,9 +23,9 @@ enum TaskActions {
 
     /// "Reschedule": a new time later today; the task will ring (and be read) again then.
     static func reschedule(_ pending: PendingTaskAlarm, to time: Date, in context: ModelContext = AppDatabase.context) async {
-        let snoozes = alarms.snoozeCount(for: pending)
-        if let record = DayStore.record(forAlarmKey: pending.key, in: context) {
-            record.snoozeCount += snoozes
+        let record = DayStore.record(forAlarmKey: pending.key, in: context)
+        stopAlarm(key: pending.key, countingSnoozesOn: record)
+        if let record {
             try? DayStore.reschedule(record, to: time, in: context)
         }
         FollowUpService.cancel(taskKeys: [pending.key])
@@ -34,10 +34,9 @@ enum TaskActions {
 
     /// "Skip today".
     static func skip(_ pending: PendingTaskAlarm, in context: ModelContext = AppDatabase.context) {
-        let snoozes = alarms.snoozeCount(for: pending)
-        alarms.acknowledge(taskKey: pending.key)
-        if let record = DayStore.record(forAlarmKey: pending.key, in: context), !record.status.isResolved {
-            record.snoozeCount += snoozes
+        let record = DayStore.record(forAlarmKey: pending.key, in: context)
+        stopAlarm(key: pending.key, countingSnoozesOn: record)
+        if let record, !record.status.isResolved {
             try? DayStore.log(record, as: .skipped, in: context)
         }
         FollowUpService.cancel(taskKeys: [pending.key])
@@ -47,25 +46,26 @@ enum TaskActions {
 
     /// Done or skipped: stops any alarm and follow-up for the task.
     static func log(_ record: TaskRecord, as status: TaskStatus, in context: ModelContext = AppDatabase.context) {
+        stopAlarm(key: record.alarmKey, countingSnoozesOn: record)
         try? DayStore.log(record, as: status, in: context)
-        alarms.acknowledge(taskKey: record.alarmKey)
         FollowUpService.cancel(taskKeys: [record.alarmKey])
     }
 
     /// Brings a finished task back; its alarm is set again if its time is still ahead.
     static func undo(_ record: TaskRecord, in context: ModelContext = AppDatabase.context) throws {
         try DayStore.undo(record, in: context)
-        scheduleAlarm(for: record)
+        scheduleAlarms(for: [record])
     }
 
     /// A new time for a day's task (the alarm moves; any follow-up is dropped).
     static func reschedule(_ record: TaskRecord, to time: Date, in context: ModelContext = AppDatabase.context) throws {
+        stopAlarm(key: record.alarmKey, countingSnoozesOn: record)
         try DayStore.reschedule(record, to: time, in: context)
         FollowUpService.cancel(taskKeys: [record.alarmKey])
         if AppRouter.shared.presentedTaskKey == record.alarmKey {
             AppRouter.shared.presentedTaskKey = nil
         }
-        scheduleAlarm(for: record)
+        scheduleAlarms(for: [record])
     }
 
     /// Tasks removed from the day (unlock, or the plan changed): cancel their alarms and follow-ups.
@@ -76,13 +76,55 @@ enum TaskActions {
         FollowUpService.cancel(taskKeys: taskKeys)
     }
 
-    /// Sets a record's alarm, if it has a time still ahead.
-    static func scheduleAlarm(for record: TaskRecord) {
-        guard let task = record.task, let time = record.scheduledFor, time > .now else { return }
-        let key = record.alarmKey
-        let unlock = record.unlockSeconds
+    // MARK: - Alarms for records
+
+    /// The alarm for a record: scheduled, with a time still ahead.
+    static func alarmRequest(for record: TaskRecord) -> TaskAlarmRequest? {
+        guard record.status == .scheduled, let task = record.task,
+              let time = record.scheduledFor, time > .now else { return nil }
+        return TaskAlarmRequest(task: task, key: record.alarmKey, date: time, unlockSeconds: record.unlockSeconds)
+    }
+
+    /// Sets the alarms of these records (those with a time still ahead).
+    static func scheduleAlarms(for records: [TaskRecord]) {
+        let requests = records.compactMap(alarmRequest(for:))
+        guard !requests.isEmpty else { return }
         Task {
-            await alarms.scheduleTaskAlarm(for: task, key: key, at: time, unlockSeconds: unlock)
+            await alarms.scheduleTaskAlarms(requests)
         }
+    }
+
+    /// Brings the alarm chains in line with the day records (run each time the app becomes active):
+    /// - chains of tasks from earlier days stop: those are asked about at the next morning check-in;
+    /// - chains of tasks that are finished, in progress or deleted stop;
+    /// - today's scheduled tasks whose alarm is missing (e.g. lost alarm data) get it back.
+    static func reconcile(today: LocalDate = .today(), in context: ModelContext = AppDatabase.context) async {
+        let startOfToday = today.date(hour: 0, minute: 0)
+        for entry in alarms.registry.tasks {
+            if entry.key.hasPrefix("test-") {
+                if entry.firstAlarmAt < startOfToday { alarms.acknowledge(taskKey: entry.key) }
+                continue
+            }
+            guard let record = DayStore.record(forAlarmKey: entry.key, in: context) else {
+                alarms.acknowledge(taskKey: entry.key)
+                continue
+            }
+            let stillRings = record.date == today.description && (record.status == .scheduled || record.status == .ringing)
+            if !stillRings {
+                stopAlarm(key: entry.key, countingSnoozesOn: record)
+                try? context.save()
+            }
+        }
+        let missing = DayStore.records(on: today, in: context)
+            .filter { alarms.registry.task(forKey: $0.alarmKey) == nil }
+            .compactMap(alarmRequest(for:))
+        await alarms.scheduleTaskAlarms(missing)
+    }
+
+    /// Stops a task's alarm chain, adding the times it rang again to the record's snooze count.
+    private static func stopAlarm(key: String, countingSnoozesOn record: TaskRecord?) {
+        guard let entry = alarms.registry.task(forKey: key) else { return }
+        record?.snoozeCount += alarms.snoozeCount(for: entry)
+        alarms.acknowledge(taskKey: key)
     }
 }

@@ -70,6 +70,18 @@ struct HistoryCalculatorTests {
         #expect(HistoryCalculator.perfectDayStreak(days: days, today: today) == Streak(current: 0, best: 1))
     }
 
+    @Test func daysWithNothingPlannedAreRestDaysNotMissed() {
+        let days = history([("2026-10-01", [task("gym", .done)]), ("2026-10-03", [task("gym", .done)])])
+        let today = date("2026-10-04")
+        // Oct 2 had no check-in. With tasks planned it's missed (breaks the streak)…
+        #expect(HistoryCalculator.kind(on: date("2026-10-02"), days: days, today: today) == .missed)
+        #expect(HistoryCalculator.perfectDayStreak(days: days, today: today) == Streak(current: 1, best: 1))
+        // …but with nothing planned it's a rest day (neutral).
+        let rest: Set<LocalDate> = [date("2026-10-02")]
+        #expect(HistoryCalculator.kind(on: date("2026-10-02"), days: days, today: today, unscheduled: rest) == .restDay)
+        #expect(HistoryCalculator.perfectDayStreak(days: days, today: today, unscheduled: rest) == Streak(current: 2, best: 2))
+    }
+
     @Test func notCheckingInTodayDoesNotBreakTheStreak() {
         let days = history([("2026-10-01", [task("gym", .done)]), ("2026-10-02", [task("gym", .done)])])
         #expect(HistoryCalculator.perfectDayStreak(days: days, today: date("2026-10-03")).current == 2)

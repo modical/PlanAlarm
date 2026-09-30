@@ -67,6 +67,18 @@ struct CheckInPlannerTests {
         #expect(CheckInPlanner.defaultNewTime(now: try at("2026-10-05", 9, 20)) == (try at("2026-10-05", 10, 0)))
     }
 
+    @Test func newTimesStayLaterToday() throws {
+        let calendar = try cairo()
+        #expect(CheckInPlanner.suggestedTimeLaterToday(now: try at("2026-10-05", 9, 0), calendar: calendar)
+                == (try at("2026-10-05", 9, 30)))
+        // 23:40 + 15 min would cross midnight: use a few minutes from now instead.
+        #expect(CheckInPlanner.suggestedTimeLaterToday(now: try at("2026-10-05", 23, 40), calendar: calendar)
+                == (try at("2026-10-05", 23, 45)))
+        let lastMinute = try at("2026-10-05", 23, 57)
+        let suggestion = CheckInPlanner.suggestedTimeLaterToday(now: lastMinute, calendar: calendar)
+        #expect(suggestion > lastMinute)
+    }
+
     @Test func overlapsUseDurations() throws {
         let items = [
             CheckInItem(id: 0, task: task("Gym", duration: 60), isExtra: false, time: try at("2026-10-05", 9, 0)),
@@ -172,14 +184,14 @@ struct DayStoreTests {
                                           in: context)
         DayStore.markRinging([(key: records[0].alarmKey, firstAlarmAt: day.date(hour: 9, minute: 0))], in: context)
         #expect(records[0].status == .ringing)
-        DayStore.markAcknowledged(alarmKey: records[0].alarmKey, snoozeCount: 2, in: context)
+        DayStore.markStarted(alarmKey: records[0].alarmKey, snoozeCount: 2, in: context)
         #expect(records[0].status == .inProgress)
         #expect(records[0].snoozeCount == 2)
         try DayStore.log(records[0], as: .done, in: context)
         #expect(records[0].status == .done)
         #expect(records[0].doneAt != nil)
         // A resolved task isn't reopened by a late acknowledgement.
-        DayStore.markAcknowledged(alarmKey: records[0].alarmKey, snoozeCount: 5, in: context)
+        DayStore.markStarted(alarmKey: records[0].alarmKey, snoozeCount: 5, in: context)
         #expect(records[0].status == .done)
         #expect(records[1].status == .scheduled)
     }
@@ -274,6 +286,20 @@ struct DayStoreTests {
         #expect(result.added.first?.scheduledFor == nil)
     }
 
+    @Test func currentAgendaReadsThePlanAndExtras() throws {
+        let container = try ModelContainer(for: StoredPlan.self, ExtraTask.self, DayRecord.self, TaskRecord.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        let plan = try #require(PlanParser.parse(text: Fixtures.briefExample).plan)
+        try PlanStore.activate(plan, json: try PlanEncoder.encode(plan), sourceName: "Test", in: context)
+        context.insert(ExtraTask(date: date("2026-10-09"), task: item(0, "Call home", time: nil).task))
+        try context.save()
+
+        #expect(DayAgenda.current(on: date("2026-10-05"), in: context).day.tasks.count == 2) // Monday
+        #expect(DayAgenda.current(on: date("2026-10-07"), in: context).day.tasks.isEmpty)    // empty Wednesday
+        #expect(DayAgenda.current(on: date("2026-10-09"), in: context).day.tasks.map(\.title) == ["Call home"])
+    }
+
     @Test func oldUnresolvedTasksBecomeUnlogged() throws {
         let context = try makeContext()
         let old = try DayStore.lockIn(date: date("2026-10-03"), dayNote: nil, planName: nil,
@@ -310,7 +336,7 @@ struct StartedTaskTests {
                                           in: context)
         records[0].snoozeCount = 1 // rings before an earlier reschedule
         let start = day.date(hour: 9, minute: 12)
-        DayStore.markAcknowledged(alarmKey: records[0].alarmKey, snoozeCount: 2, now: start, in: context)
+        DayStore.markStarted(alarmKey: records[0].alarmKey, snoozeCount: 2, now: start, in: context)
         #expect(records[0].status == .inProgress)
         #expect(records[0].startedAt == start)
         #expect(records[0].acknowledgedAt == start)

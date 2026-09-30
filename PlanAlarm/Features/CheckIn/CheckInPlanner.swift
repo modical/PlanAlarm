@@ -78,6 +78,16 @@ enum CheckInPlanner {
         return Date(timeIntervalSinceReferenceDate: (t / 1800).rounded(.up) * 1800)
     }
 
+    /// The starting value for "New time" / "Reschedule" (later today only): like `defaultNewTime`, but
+    /// never past midnight, since the time picker only changes the hour and minute.
+    static func suggestedTimeLaterToday(now: Date, calendar: Calendar = .plan) -> Date {
+        let today = LocalDate(now, calendar: calendar)
+        let proposed = defaultNewTime(now: now)
+        if LocalDate(proposed, calendar: calendar) == today { return proposed }
+        let soon = roundedUpToFiveMinutes(now.addingTimeInterval(5 * 60))
+        return LocalDate(soon, calendar: calendar) == today ? soon : now.addingTimeInterval(60)
+    }
+
     /// Every time zone's offset is a multiple of 15 minutes, so 5-minute marks line up with local time.
     static func roundedUpToFiveMinutes(_ date: Date) -> Date {
         let t = date.timeIntervalSinceReferenceDate.rounded(.down)

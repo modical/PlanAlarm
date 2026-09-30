@@ -9,10 +9,21 @@ struct PlanAlarmData: AlarmMetadata {
     enum Kind: String, Codable, Sendable {
         case wake
         case task
+        case checkIn
+        case reinstall
     }
 
     var kind: Kind
     var taskKey: String?
+}
+
+/// One task alarm to schedule.
+struct TaskAlarmRequest: Sendable {
+    var task: PlanTask
+    var key: String
+    var date: Date
+    /// The task's own read time, if the plan sets one.
+    var unlockSeconds: Int?
 }
 
 /// The only place that talks to AlarmKit.
@@ -85,8 +96,9 @@ final class AlarmService {
         }
     }
 
-    /// Call when the app becomes active: refreshes permission, removes alarms the app no longer knows,
-    /// restores missing wake alarms, and restarts the chain of any waiting task that ran out of rings.
+    /// Call when the app becomes active (after `TaskActions.reconcile()`): refreshes permission, removes
+    /// alarms the app no longer knows, restores missing wake alarms, restarts the chain of any waiting task
+    /// that ran out of rings, and updates the check-in and reinstall reminders.
     func refresh() async {
         authorization = manager.authorizationState
         guard authorization == .authorized, let live = try? manager.alarms else { return }
@@ -131,9 +143,9 @@ final class AlarmService {
         let ring = ScheduledRing(id: UUID(), date: wanted)
         registry.expiryReminder = ring
         registry.save()
-        let scheduled = await scheduleAlarm(id: ring.id, configuration: expiryConfiguration(id: ring.id, at: wanted),
-                                            what: "the reinstall reminder")
-        if !scheduled {
+        let result = await scheduleAlarm(id: ring.id, configuration: expiryConfiguration(id: ring.id, at: wanted),
+                                         what: "the reinstall reminder")
+        if result != .scheduled {
             registry.expiryReminder = nil
             registry.save()
         }
@@ -147,7 +159,7 @@ final class AlarmService {
         )
         let attributes = AlarmAttributes(
             presentation: AlarmPresentation(alert: alert),
-            metadata: PlanAlarmData(kind: .wake),
+            metadata: PlanAlarmData(kind: .reinstall),
             tintColor: .red
         )
         return .alarm(
@@ -162,8 +174,9 @@ final class AlarmService {
     // MARK: - Check-in reminder
 
     /// Keeps the check-in reminder rings in step with the wake-up schedule, the settings, and which days
-    /// are locked in: for today and tomorrow, if the day isn't locked in, ring every interval after the
-    /// wake-up time (4 times). Calls made while an update is running are merged.
+    /// are locked in: for today and tomorrow, if the day has tasks and isn't locked in, ring every
+    /// interval after the wake-up time (4 times). Days with nothing planned aren't nagged.
+    /// Calls made while an update is running are merged.
     func updateCheckInReminders() {
         needsCheckInUpdate = true
         guard !isUpdatingCheckIn else { return }
@@ -187,7 +200,9 @@ final class AlarmService {
 
         for date in [today, today.adding(days: 1)] {
             let key = date.description
-            let wanted = settings.checkInReminderEnabled && !DayStore.isLockedIn(date)
+            let needsCheckIn = settings.checkInReminderEnabled && !DayStore.isLockedIn(date)
+                && !DayAgenda.current(on: date).day.tasks.isEmpty
+            let wanted = needsCheckIn
                 ? settings.wakeSchedule.checkInReminderDates(on: date, interval: interval, count: 4).filter { $0 > now }
                 : []
             let existing = registry.checkInChains[key] ?? []
@@ -206,8 +221,8 @@ final class AlarmService {
             var scheduled: [ScheduledRing] = []
             for ring in rings {
                 let configuration = checkInConfiguration(id: ring.id, at: ring.date)
-                let didSchedule = await scheduleAlarm(id: ring.id, configuration: configuration, what: "the check-in reminder")
-                guard didSchedule else { break }
+                let result = await scheduleAlarm(id: ring.id, configuration: configuration, what: "the check-in reminder")
+                guard result == .scheduled else { break }
                 scheduled.append(ring)
             }
             registry.checkInChains[key] = scheduled
@@ -230,7 +245,7 @@ final class AlarmService {
         )
         let attributes = AlarmAttributes(
             presentation: AlarmPresentation(alert: alert),
-            metadata: PlanAlarmData(kind: .wake),
+            metadata: PlanAlarmData(kind: .checkIn),
             tintColor: .orange
         )
         return .alarm(
@@ -277,8 +292,8 @@ final class AlarmService {
             registry.wakeAlarmIDs.append(id)
             registry.save()
             let configuration = wakeConfiguration(id: id, schedule: .relative(relative))
-            let scheduled = await scheduleAlarm(id: id, configuration: configuration, what: "the wake-up alarm")
-            if !scheduled {
+            let result = await scheduleAlarm(id: id, configuration: configuration, what: "the wake-up alarm")
+            if result != .scheduled {
                 registry.wakeAlarmIDs.removeAll { $0 == id }
                 registry.save()
             }
@@ -311,11 +326,22 @@ final class AlarmService {
     /// Schedules a task's alarm chain. It keeps ringing every snooze interval until `acknowledge(taskKey:)`.
     /// `unlockSeconds` is the task's own read time, if the plan sets one.
     func scheduleTaskAlarm(for task: PlanTask, key: String, at date: Date, unlockSeconds: Int? = nil) async {
-        if let existing = registry.task(forKey: key) {
-            cancelRings(of: existing)
+        await scheduleTaskAlarms([TaskAlarmRequest(task: task, key: key, date: date, unlockSeconds: unlockSeconds)])
+    }
+
+    /// Schedules several tasks' chains (e.g. at lock-in), replacing any existing chain for the same key.
+    func scheduleTaskAlarms(_ requests: [TaskAlarmRequest]) async {
+        guard !requests.isEmpty else { return }
+        for request in requests {
+            if let existing = registry.task(forKey: request.key) {
+                cancelRings(of: existing)
+            }
+            let first = earliestRingDate(request.date)
+            registry.upsert(PendingTaskAlarm(key: request.key, task: request.task, firstAlarmAt: first,
+                                             rings: plannedRings(startingAt: first), unlockSeconds: request.unlockSeconds))
         }
-        registry.upsert(PendingTaskAlarm(key: key, task: task, firstAlarmAt: date, rings: [], unlockSeconds: unlockSeconds))
-        await rechain(key: key, startingAt: date)
+        registry.save()
+        await scheduleRings(forKeys: requests.map(\.key))
     }
 
     /// The stop intent ran (Stop, slide or a physical button): re-time the chain so the next ring is
@@ -368,34 +394,65 @@ final class AlarmService {
         // Rings already heard count as snoozes; the rest are replaced.
         entry.snoozeCount += entry.rings.filter { $0.date <= .now }.count
         cancelRings(of: entry)
-
-        let dates = AlarmRegistry.chainDates(
-            startingAt: first,
-            interval: snoozeInterval,
-            count: AlarmRegistry.chainLength(snoozeInterval: snoozeInterval)
-        )
-        entry.rings = dates.map { ScheduledRing(id: UUID(), date: $0) }
+        entry.rings = plannedRings(startingAt: earliestRingDate(first))
         registry.upsert(entry)
         registry.save()
+        await scheduleRings(forKeys: [key])
+    }
 
-        var scheduled: [ScheduledRing] = []
-        for ring in entry.rings {
-            let configuration = taskConfiguration(title: entry.task.title, key: key, alarmID: ring.id, at: ring.date)
-            if await scheduleAlarm(id: ring.id, configuration: configuration, what: "“\(entry.task.title)”") {
-                scheduled.append(ring)
+    /// AlarmKit needs a future date; a time that has only just passed rings in a few seconds.
+    private func earliestRingDate(_ date: Date) -> Date {
+        max(date, Date.now.addingTimeInterval(5))
+    }
+
+    /// A full chain of rings, one per snooze interval.
+    private func plannedRings(startingAt first: Date) -> [ScheduledRing] {
+        AlarmRegistry.chainDates(startingAt: first, interval: snoozeInterval,
+                                 count: AlarmRegistry.chainLength(snoozeInterval: snoozeInterval))
+            .map { ScheduledRing(id: UUID(), date: $0) }
+    }
+
+    /// Schedules the planned rings of these tasks, **ring by ring across tasks**: every task's first ring,
+    /// then every task's second ring, and so on. If iOS runs out of alarm slots, tasks lose backup rings
+    /// rather than being left with no alarm at all. Rings that couldn't be scheduled are dropped.
+    private func scheduleRings(forKeys keys: [String]) async {
+        var planned: [String: [ScheduledRing]] = [:]
+        for key in keys {
+            planned[key] = registry.task(forKey: key)?.rings
+        }
+        var scheduled: [String: [ScheduledRing]] = [:]
+        var failedKeys: Set<String> = []
+        let depth = planned.values.map(\.count).max() ?? 0
+
+        rings: for index in 0..<depth {
+            for key in keys where !failedKeys.contains(key) {
+                guard let rings = planned[key], index < rings.count,
+                      let entry = registry.task(forKey: key), entry.rings == rings else { continue } // stopped meanwhile
+                let ring = rings[index]
+                let configuration = taskConfiguration(title: entry.task.title, key: key, alarmID: ring.id, at: ring.date)
+                let result = await scheduleAlarm(id: ring.id, configuration: configuration, what: "“\(entry.task.title)”")
+                switch result {
+                case .scheduled: scheduled[key, default: []].append(ring)
+                case .limitReached: break rings
+                case .failed: failedKeys.insert(key)
+                }
+            }
+        }
+
+        for key in keys {
+            guard let rings = planned[key] else { continue }
+            let done = scheduled[key] ?? []
+            if var current = registry.task(forKey: key), current.rings == rings {
+                current.rings = done
+                registry.upsert(current)
             } else {
-                break // e.g. the system's alarm limit; keep the rings that did schedule
+                // Stopped or re-planned while scheduling: cancel what this pass added.
+                let kept = registry.task(forKey: key)?.rings ?? []
+                for ring in done where !kept.contains(ring) {
+                    try? manager.cancel(id: ring.id)
+                }
             }
         }
-        // The entry may have been stopped while scheduling.
-        guard var current = registry.task(forKey: key), current.rings == entry.rings else {
-            for ring in scheduled where !(registry.task(forKey: key)?.rings.contains(ring) ?? false) {
-                try? manager.cancel(id: ring.id)
-            }
-            return
-        }
-        current.rings = scheduled
-        registry.upsert(current)
         registry.save()
     }
 
@@ -427,20 +484,28 @@ final class AlarmService {
 
     // MARK: - Shared helpers
 
-    /// Schedules one alarm; records the error and returns false if AlarmKit refuses.
-    private func scheduleAlarm(id: UUID, configuration: AlarmManager.AlarmConfiguration<PlanAlarmData>, what: String) async -> Bool {
+    private enum ScheduleResult {
+        case scheduled
+        /// iOS's alarm limit: stop scheduling more.
+        case limitReached
+        case failed
+    }
+
+    /// Schedules one alarm; records the problem if AlarmKit refuses.
+    private func scheduleAlarm(id: UUID, configuration: AlarmManager.AlarmConfiguration<PlanAlarmData>,
+                               what: String) async -> ScheduleResult {
         inFlightIDs.insert(id)
         defer { inFlightIDs.remove(id) }
         do {
             _ = try await manager.schedule(id: id, configuration: configuration)
             authorization = manager.authorizationState
-            return true
+            return .scheduled
         } catch AlarmManager.AlarmError.maximumLimitReached {
             lastError = "iOS won't allow more alarms right now, so \(what) has fewer backup rings."
-            return false
+            return .limitReached
         } catch {
             lastError = "Couldn't set \(what): \(error.localizedDescription)"
-            return false
+            return .failed
         }
     }
 
@@ -485,7 +550,8 @@ final class AlarmService {
         let id = UUID()
         registry.testAlarmIDs = Array((registry.testAlarmIDs + [id]).suffix(5))
         registry.save()
-        _ = await scheduleAlarm(id: id, configuration: wakeConfiguration(id: id, schedule: .fixed(.now.addingTimeInterval(60))), what: "the test wake-up alarm")
+        _ = await scheduleAlarm(id: id, configuration: wakeConfiguration(id: id, schedule: .fixed(.now.addingTimeInterval(60))),
+                                what: "the test wake-up alarm")
     }
 
     struct ScheduledAlarmInfo: Identifiable {

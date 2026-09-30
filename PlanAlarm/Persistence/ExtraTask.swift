@@ -67,6 +67,16 @@ struct DayAgenda: Identifiable {
         self.extras = mine
     }
 
+    /// A date's tasks from the active plan and the app's extra tasks, read from the database
+    /// (for code outside views, e.g. the check-in reminder).
+    @MainActor
+    static func current(on date: LocalDate, in context: ModelContext = AppDatabase.context) -> DayAgenda {
+        let activePlans = (try? context.fetch(FetchDescriptor<StoredPlan>(predicate: #Predicate { $0.isActive == true }))) ?? []
+        let key = date.description
+        let extras = (try? context.fetch(FetchDescriptor<ExtraTask>(predicate: #Predicate { $0.date == key }))) ?? []
+        return DayAgenda(date: date, plan: activePlans.first.flatMap { PlanStore.plan(for: $0) }, extras: extras)
+    }
+
     /// The extra task at a position in `day.tasks`, if that task is an extra.
     func extra(at index: Int) -> ExtraTask? {
         let position = index - planTaskCount

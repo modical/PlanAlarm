@@ -143,9 +143,7 @@ struct TodayTimelineView: View {
             let result = try DayStore.sync(date, with: currentAgenda, planDefaultReadSeconds: currentPlan?.defaultReadSeconds,
                                            in: modelContext)
             TaskActions.removed(taskKeys: result.removedKeys)
-            for record in result.added {
-                TaskActions.scheduleAlarm(for: record)
-            }
+            TaskActions.scheduleAlarms(for: result.added)
         } catch {
             errorText = error.localizedDescription
         }
@@ -246,8 +244,16 @@ private struct TimelineRow: View {
                     DatePicker("Time", selection: $pickedTime, displayedComponents: .hourAndMinute)
                         .labelsHidden()
                         .environment(\.calendar, .plan)
-                        .onChange(of: pickedTime) {
-                            if pickedTime != record.scheduledFor { onReschedule(pickedTime) }
+                        // Wait until the wheels stop before moving the alarm (each move re-creates its rings).
+                        .task(id: pickedTime) {
+                            guard pickedTime != record.scheduledFor else { return }
+                            try? await Task.sleep(for: .seconds(1))
+                            guard !Task.isCancelled else { return }
+                            let chosen = pickedTime
+                            if chosen <= .now {
+                                pickedTime = record.scheduledFor ?? .now // show the real time again
+                            }
+                            onReschedule(chosen) // a past time is refused with a message
                         }
                 } else if let time = record.scheduledFor {
                     Text(time.formatted(date: .omitted, time: .shortened))
@@ -304,7 +310,7 @@ struct NewTimeSheet: View {
     let onSave: (Date) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var time = CheckInPlanner.defaultNewTime(now: .now)
+    @State private var time = CheckInPlanner.suggestedTimeLaterToday(now: .now)
 
     var body: some View {
         NavigationStack {
