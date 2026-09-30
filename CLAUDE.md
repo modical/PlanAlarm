@@ -100,6 +100,9 @@ and say exactly what to reply afterwards.
   after that day's wake time) for today and tomorrow while not locked in; `registry.checkInChains`.
 - `AlarmRegistry` decodes missing fields as empty (custom `init(from:)`): **add new fields there too**, or a
   missing key would wipe the registry and the orphan clean-up would cancel every alarm.
+- **Never put `LazyVGrid`/`LazyHGrid` inside a `List` row**: it sent UIKit's list layout into a loop
+  (UICollectionView assertion, SIGTRAP) on a 440-pt iPhone (build 19 History crash). Use plain stacks.
+  `ScreenSmokeTests` opens every tab at six iPhone widths and switches tabs; add new screens there.
 - Swift 6 gotcha: don't build `Binding(get:set:)` from a stored callback property (Sendable warning); marking
   the callback `@MainActor` crashed the Swift 6.2 compiler in Xcode 26.6. Use local `@State` + `.onChange`.
 - Read screen (`TaskAlarmView`): countdown (foreground only), then Starting Now / Reschedule / Skip Today,
@@ -143,5 +146,5 @@ After each phase: commit, push, get a green CI run, then summarise what works an
 4. **Morning check-in** + scheduling, re-alarm, passed-time handling, Today timeline.
    *(done in build 15; Unlock Day in 16; undo, new time and live plan updates in 17 — waiting for on-device tests)*
 5. **Read-to-dismiss**, statuses, follow-up notifications. *(done in build 18 — waiting for on-device tests)*
-6. **History and streaks** (+ edge-case tests: rest days, skips, plan changes, DST). *(done in build 19 — waiting for on-device tests)*
+6. **History and streaks** (+ edge-case tests: rest days, skips, plan changes, DST). *(done in build 19; History crash on wide iPhones fixed in build 23 — waiting for on-device tests)*
 7. Expiry protection, onboarding, settings polish, README.
