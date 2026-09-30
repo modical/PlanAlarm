@@ -163,3 +163,10 @@ After each phase: commit, push, get a green CI run, then summarise what works an
 5. **Read-to-dismiss**, statuses, follow-up notifications. *(done in build 18 — waiting for on-device tests)*
 6. **History and streaks** (+ edge-case tests: rest days, skips, plan changes, DST). *(done in build 19; History crash on wide iPhones fixed in build 23 — waiting for on-device tests)*
 7. **Expiry protection**, onboarding, settings polish, README. *(done in build 24 — waiting for on-device tests)*
+
+## Releases
+- **v1.0** (tag `v1.0`, GitHub Release with `PlanAlarm.ipa`): all 7 phases plus a full review pass
+  (scheduling order, reconcile on activation, history rest days, pickers, sample dates). Version is
+  `MARKETING_VERSION` in `project.yml`; release by pushing a `v*` tag (CI attaches the IPA).
+- Planned later (owner): rebranding / new name, a paid Apple developer account (fixes the 7-day expiry;
+  see README §11 — note a new bundle ID means a separate app, so export history first), and UX polish.
