@@ -149,6 +149,15 @@ private struct AboutSection: View {
     @State private var buildTaps = 0
 
     var body: some View {
+        Section {
+            ShareLink(item: HistoryExportFile(), preview: SharePreview("PlanAlarm history")) {
+                Label("Export History (JSON)", systemImage: "square.and.arrow.up")
+            }
+        } header: {
+            Text("History")
+        } footer: {
+            Text("A backup of every checked-in day and task, with statuses and times.")
+        }
         Section("About") {
             LabeledContent("Version", value: AppInfo.version)
             LabeledContent("Build", value: AppInfo.build)
