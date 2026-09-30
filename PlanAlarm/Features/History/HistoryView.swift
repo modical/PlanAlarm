@@ -71,7 +71,13 @@ private struct MonthCalendar: View {
     let onChangeMonth: (Int) -> Void
 
     private let firstWeekday = Calendar.plan.firstWeekday
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
+
+    /// The month in rows of 7. Plain stacks (not a lazy grid): lazy grids inside a List row made
+    /// UIKit's list layout loop and crash (seen on a 440-point-wide iPhone, reproduced in CI).
+    private var weeks: [[LocalDate?]] {
+        let cells = HistoryCalculator.monthGrid(year: year, month: month, firstWeekday: firstWeekday)
+        return stride(from: 0, to: cells.count, by: 7).map { Array(cells[$0..<min($0 + 7, cells.count)]) }
+    }
 
     private var title: String {
         LocalDate(year: year, month: month, day: 1)?.formatted(.dateTime.month(.wide).year()) ?? ""
@@ -91,20 +97,26 @@ private struct MonthCalendar: View {
             .buttonStyle(.borderless)
             .imageScale(.large)
 
-            LazyVGrid(columns: columns, spacing: 6) {
-                ForEach(Weekday.ordered(firstWeekday: firstWeekday), id: \.self) { weekday in
-                    Text(weekday.displayName.prefix(3))
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
+            VStack(spacing: 6) {
+                HStack(spacing: 4) {
+                    ForEach(Weekday.ordered(firstWeekday: firstWeekday), id: \.self) { weekday in
+                        Text(weekday.displayName.prefix(3))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                    }
                 }
-                ForEach(Array(HistoryCalculator.monthGrid(year: year, month: month, firstWeekday: firstWeekday).enumerated()),
-                        id: \.offset) { _, date in
-                    if let date {
-                        DayCell(date: date, kind: HistoryCalculator.kind(on: date, days: days, today: today),
-                                isToday: date == today)
-                            .onTapGesture { onSelect(date) }
-                    } else {
-                        Color.clear.frame(height: 36)
+                ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
+                    HStack(spacing: 4) {
+                        ForEach(Array(week.enumerated()), id: \.offset) { _, date in
+                            if let date {
+                                DayCell(date: date, kind: HistoryCalculator.kind(on: date, days: days, today: today),
+                                        isToday: date == today)
+                                    .onTapGesture { onSelect(date) }
+                            } else {
+                                Color.clear.frame(maxWidth: .infinity).frame(height: 36)
+                            }
+                        }
                     }
                 }
             }
@@ -122,14 +134,15 @@ private struct DayCell: View {
         Text("\(date.day)")
             .font(.subheadline.weight(isToday ? .bold : .regular))
             .monospacedDigit()
-            .frame(maxWidth: .infinity, minHeight: 36)
+            .foregroundStyle(kind.usesLightText ? Color.white : Color.primary)
+            .frame(width: 36, height: 36)
             .background(kind.color, in: Circle())
             .overlay {
                 if isToday {
                     Circle().strokeBorder(Color.primary, lineWidth: 2)
                 }
             }
-            .foregroundStyle(kind.usesLightText ? Color.white : Color.primary)
+            .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
             .accessibilityLabel("\(date.longText): \(kind.label)")
             .accessibilityAddTraits(.isButton)
@@ -139,15 +152,26 @@ private struct DayCell: View {
 private struct CalendarLegend: View {
     private let kinds: [DayKind] = [.allDone, .partial, .noneDone, .restDay, .inProgress, .missed]
 
+    /// Two fixed columns (plain stacks, see `MonthCalendar.weeks`).
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), alignment: .leading)], alignment: .leading, spacing: 6) {
-            ForEach(kinds, id: \.self) { kind in
-                HStack(spacing: 6) {
-                    Circle().fill(kind.color).frame(width: 12, height: 12)
-                    Text(kind.label).font(.caption)
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(stride(from: 0, to: kinds.count, by: 2)), id: \.self) { index in
+                HStack(spacing: 12) {
+                    item(kinds[index])
+                    if index + 1 < kinds.count {
+                        item(kinds[index + 1])
+                    }
                 }
             }
         }
+    }
+
+    private func item(_ kind: DayKind) -> some View {
+        HStack(spacing: 6) {
+            Circle().fill(kind.color).frame(width: 12, height: 12)
+            Text(kind.label).font(.caption)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
