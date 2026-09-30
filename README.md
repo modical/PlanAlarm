@@ -3,7 +3,7 @@
 A personal iPhone app that turns a daily plan (gym, stretches, study…) into reminders that ring like
 real alarms: through silent mode and Focus, over and over, until you open the app and read the task.
 
-> Status: **phase 5 (read screen and follow-ups)**. Plans, the morning check-in, task alarms with the read screen and "Did you finish?" notifications work. History and streaks arrive in phase 6.
+> Status: **phase 6 (history and streaks)**. Plans, the morning check-in, task alarms with the read screen, follow-ups, and history with streaks work. Expiry protection, onboarding and polish arrive in phase 7.
 
 ## Getting the app (.ipa)
 
@@ -97,6 +97,19 @@ doesn't include them.
    - Done or skipped by mistake? **Undo** / **Unskip** brings it back (it asks for a new time if its time passed).
    - Changes you make to today in the **Plan** tab show up on Today right away.
    - The **open-lock button** (top right) **unlocks the day** to redo the check-in (tasks already done or skipped stay).
+
+## History and streaks
+
+- The **History** tab shows a month calendar: green = all done, orange = partly done, red = nothing done,
+  grey = rest day (no tasks), blue = today in progress, faded red = a day without a check-in.
+  Tap a day to see its tasks, times, how often each rang again, and when it was done.
+- **Streaks** (current and best): *Perfect days* (every task done; skipped or unlogged tasks and days
+  without a check-in break it, rest days don't) and one per category (days that category was scheduled
+  and done). Today only counts once it's complete.
+- **Completion** for the last 7 and 30 days, overall and per category.
+- **Export History** (History tab share button, or Settings) saves everything as a JSON file.
+- History is kept when you load, edit or delete plans, and when you reinstall the app the usual way
+  (same Apple ID, without deleting the app).
 
 ## How the alarms behave
 

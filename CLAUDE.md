@@ -108,6 +108,11 @@ and say exactly what to reply afterwards.
   local notification at start + duration (or +60 min), category with Done / Skipped actions handled by
   `NotificationDelegate` (set in `AppDelegate`, so it works when the app was not running). Settings
   `followUpEnabled`. Notification permission is asked the first time a follow-up is needed.
+- History (`Features/History`): `HistoryCalculator` holds all rules (day kinds, perfect-day and category
+  streaks, completion windows, month grid), fed by `HistoryDay.days(dayRecords:taskRecords:)`. Decisions:
+  today never breaks a streak until complete; a past day without a check-in (after the first one) is
+  "missed": it breaks the perfect-day streak, and category streaks ignore it. Categories compare
+  case-insensitively. Export: `HistoryExport` (JSON, ISO-8601 dates) via `HistoryExportFile` share sheet.
 - Plans can be deleted (active or archived). So history (phases 5–6) must **snapshot** task data
   (title, category, times) in its own records and must never depend on a `StoredPlan` still existing.
 
@@ -138,5 +143,5 @@ After each phase: commit, push, get a green CI run, then summarise what works an
 4. **Morning check-in** + scheduling, re-alarm, passed-time handling, Today timeline.
    *(done in build 15; Unlock Day in 16; undo, new time and live plan updates in 17 — waiting for on-device tests)*
 5. **Read-to-dismiss**, statuses, follow-up notifications. *(done in build 18 — waiting for on-device tests)*
-6. History and streaks (+ edge-case tests: rest days, skips, plan changes, DST).
+6. **History and streaks** (+ edge-case tests: rest days, skips, plan changes, DST). *(done in build 19 — waiting for on-device tests)*
 7. Expiry protection, onboarding, settings polish, README.
