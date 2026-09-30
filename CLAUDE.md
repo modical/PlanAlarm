@@ -96,7 +96,8 @@ and say exactly what to reply afterwards.
   (adds new tasks at their time or "Needs a time", removes open tasks gone from the day, keeps finished ones).
   Timeline: Undo/Unskip/Reopen (`DayStore.undo`), New Time (`DayStore.reschedule`) for ringing,
   in-progress or overdue tasks. "Needs a time" = scheduled, time nil or past, and no alarm chain.
-- Check-in reminder: `AlarmService.updateCheckInReminders()` keeps 4 rings (every `checkInReminderMinutes`
+- Check-in reminder (skipped on days with nothing planned; refreshed on activation and when the app goes to
+  the background): `AlarmService.updateCheckInReminders()` keeps 4 rings (every `checkInReminderMinutes`
   after that day's wake time) for today and tomorrow while not locked in; `registry.checkInChains`.
 - `AlarmRegistry` decodes missing fields as empty (custom `init(from:)`): **add new fields there too**, or a
   missing key would wipe the registry and the orphan clean-up would cancel every alarm.
@@ -105,6 +106,13 @@ and say exactly what to reply afterwards.
   `ScreenSmokeTests` opens every tab at six iPhone widths and switches tabs; add new screens there.
 - Swift 6 gotcha: don't build `Binding(get:set:)` from a stored callback property (Sendable warning); marking
   the callback `@MainActor` crashed the Swift 6.2 compiler in Xcode 26.6. Use local `@State` + `.onChange`.
+- Scheduling: `AlarmService.scheduleTaskAlarms` schedules rings **ring by ring across tasks** (all first rings,
+  then all second rings…), so hitting iOS's alarm limit costs backups, never a task's only alarm; just-passed
+  times ring in 5 s. On every activation `TaskActions.reconcile()` runs before `AlarmService.refresh()`:
+  stops chains of earlier days' tasks (they go to "Did you do these?"), of finished/in-progress/deleted tasks,
+  and restores missing alarms for today's scheduled tasks (TaskRecords are the source of truth).
+- The bundled sample plan is moved by whole weeks to cover today when loaded (`Plan.movedToCover`).
+- History: a no-check-in day with nothing planned (per the active plan + extras) is a rest day, not missed.
 - Read screen (`TaskAlarmView`): countdown (foreground only), then Starting Now / Reschedule / Skip Today,
   each of which stops the alarm. **All task state changes go through `TaskActions`** (Features/Shared) so
   `TaskRecord`s, alarm chains and follow-ups stay in step. Follow-up (`Notifications/FollowUpService`):

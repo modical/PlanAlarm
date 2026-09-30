@@ -33,6 +33,25 @@ struct SamplePlanTests {
         #expect(deload.summary?.hasPrefix("Half the sets") == true)
     }
 
+    @Test func sampleMovesByWholeWeeksToCoverToday() throws {
+        let plan = try #require(PlanParser.parse(try Data(contentsOf: Self.repoSampleURL)).plan)
+        #expect(plan.movedToCover(date("2026-10-15")) == plan) // already covers it
+
+        let later = plan.movedToCover(date("2027-03-10"))
+        #expect(later.contains(date("2027-03-10")))
+        #expect(plan.startDate.days(until: later.startDate) % 7 == 0)
+        #expect(later.startDate.weekday == plan.startDate.weekday)
+        #expect(later.lengthInDays == plan.lengthInDays)
+        // The travel day (a Saturday "replace") moves with it and stays a Saturday.
+        let travel = try #require(later.dateOverrides.first { $0.value.dayNote == "Travel day — nothing scheduled." }?.key)
+        #expect(travel.weekday == .saturday)
+        // And it still round-trips as a valid plan.
+        #expect(PlanParser.parse(try PlanEncoder.encode(later)).isValid)
+
+        let earlier = plan.movedToCover(date("2026-06-01"))
+        #expect(earlier.contains(date("2026-06-01")))
+    }
+
     @Test func sampleIsBundledInTheApp() throws {
         // Only meaningful when the tests run inside the app (the normal, hosted setup).
         guard Bundle.main.bundleIdentifier == "com.habashi.planalarm" else { return }

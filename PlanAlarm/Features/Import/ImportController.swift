@@ -74,13 +74,18 @@ final class ImportController {
         sheet = .preview(PendingImport(sourceName: "Pasted text", result: PlanParser.parse(text: text)))
     }
 
-    func loadSample() {
+    /// The bundled sample plan, moved by whole weeks to cover today (its own dates are fixed).
+    func loadSample(today: LocalDate = .today()) {
         guard let url = Bundle.main.url(forResource: Self.sampleResourceName, withExtension: "dayplan"),
               let data = try? Data(contentsOf: url) else {
             readError = "The sample plan is missing from the app."
             return
         }
-        preview(data, sourceName: "Sample plan")
+        if let plan = PlanParser.parse(data).plan, let moved = try? PlanEncoder.encode(plan.movedToCover(today)) {
+            preview(moved, sourceName: "Sample plan")
+        } else {
+            preview(data, sourceName: "Sample plan")
+        }
     }
 
     func confirm(_ pending: PendingImport, in context: ModelContext) throws {

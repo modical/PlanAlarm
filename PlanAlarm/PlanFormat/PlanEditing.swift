@@ -39,6 +39,20 @@ enum TaskSource: Equatable, Sendable {
 ///
 /// A date with its own "replace" override keeps its own tasks when the weekly pattern changes.
 extension Plan {
+    /// The same plan moved by whole weeks so that it covers `today` (weekday patterns and the weekdays of
+    /// date changes are kept). Used for the bundled sample, whose dates are fixed. Unchanged if it
+    /// already covers today.
+    func movedToCover(_ today: LocalDate) -> Plan {
+        guard !contains(today) else { return self }
+        let weeks = Int((Double(startDate.days(until: today)) / 7).rounded(.down))
+        let offset = weeks * 7
+        var moved = self
+        moved.startDate = startDate.adding(days: offset)
+        moved.endDate = endDate?.adding(days: offset)
+        moved.dateOverrides = Dictionary(uniqueKeysWithValues: dateOverrides.map { ($0.key.adding(days: offset), $0.value) })
+        return moved
+    }
+
     static func empty(name: String, startDate: LocalDate, endDate: LocalDate?) -> Plan {
         Plan(name: name, startDate: startDate, endDate: endDate, defaultReadSeconds: fallbackReadSeconds,
              library: [:], weeklyTemplate: [:], dateOverrides: [:])

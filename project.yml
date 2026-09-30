@@ -11,7 +11,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "1.0"
     # CI overrides this with the GitHub run number so every build is distinct.
     CURRENT_PROJECT_VERSION: "1"
     # Signing: CI builds unsigned (CODE_SIGNING_ALLOWED=NO) and Sideloadly re-signs.
