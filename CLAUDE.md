@@ -116,6 +116,13 @@ and say exactly what to reply afterwards.
   today never breaks a streak until complete; a past day without a check-in (after the first one) is
   "missed": it breaks the perfect-day streak, and category streaks ignore it. Categories compare
   case-insensitively. Export: `HistoryExport` (JSON, ISO-8601 dates) via `HistoryExportFile` share sheet.
+- Expiry (`App/AppExpiry.swift`): ExpirationDate from `embedded.mobileprovision` (plist cut out of the CMS
+  blob), else app-folder creation date + 7 days. `AlarmService.updateExpiryReminder()` (on every activation)
+  keeps one alarm at 20:00 the evening before (`registry.expiryReminder`). `ExpiryBanner` on Today < 48 h.
+  Sideloadly appends the team ID to the bundle ID (e.g. `com.habashi.planalarm.J4V38G56NA`); data survives
+  reinstalls only with the same Apple ID.
+- Onboarding (`Features/Onboarding`): shown on first launch unless plans/history exist (`hasCompletedOnboarding`
+  AppStorage; Settings → Show Welcome Screens Again). Plan sheets open after it closes (`OnboardingNextStep`).
 - Plans can be deleted (active or archived). So history (phases 5–6) must **snapshot** task data
   (title, category, times) in its own records and must never depend on a `StoredPlan` still existing.
 
@@ -147,4 +154,4 @@ After each phase: commit, push, get a green CI run, then summarise what works an
    *(done in build 15; Unlock Day in 16; undo, new time and live plan updates in 17 — waiting for on-device tests)*
 5. **Read-to-dismiss**, statuses, follow-up notifications. *(done in build 18 — waiting for on-device tests)*
 6. **History and streaks** (+ edge-case tests: rest days, skips, plan changes, DST). *(done in build 19; History crash on wide iPhones fixed in build 23 — waiting for on-device tests)*
-7. Expiry protection, onboarding, settings polish, README.
+7. **Expiry protection**, onboarding, settings polish, README. *(done in build 24 — waiting for on-device tests)*
