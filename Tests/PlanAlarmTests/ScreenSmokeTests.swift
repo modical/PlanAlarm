@@ -90,6 +90,11 @@ struct ScreenSmokeTests {
         try await show(SettingsView(), container: container, size: size)
     }
 
+    @Test(arguments: screenSizes)
+    func onboarding(size: CGSize) async throws {
+        try await show(OnboardingView { _ in }, container: try makeContainer(), size: size)
+    }
+
     /// The whole app as it launches, switching through every tab (the crash happened on a tab switch).
     @Test(arguments: [CGSize(width: 390, height: 844), CGSize(width: 440, height: 956)])
     func switchingTabs(size: CGSize) async throws {

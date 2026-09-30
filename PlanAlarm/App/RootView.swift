@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -12,6 +13,9 @@ struct RootView: View {
     @State private var router = AppRouter.shared
     /// The calendar day shown on the Today tab; updated whenever the app becomes active.
     @State private var today = LocalDate.today()
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @State private var isShowingOnboarding = false
+    @State private var onboardingNextStep: OnboardingNextStep = .none
     @Environment(\.scenePhase) private var scenePhase
 
     /// The task shown full screen until it's acknowledged.
@@ -112,7 +116,47 @@ struct RootView: View {
                 router.showPendingTaskIfNeeded()
             }
         }
+        // First-launch welcome (skipped for people who already have plans or history).
+        .fullScreenCover(isPresented: $isShowingOnboarding, onDismiss: runOnboardingNextStep) {
+            OnboardingView { step in
+                onboardingNextStep = step
+                hasCompletedOnboarding = true
+                isShowingOnboarding = false
+            }
+        }
+        .onAppear {
+            guard !hasCompletedOnboarding else { return }
+            if hasExistingData {
+                hasCompletedOnboarding = true
+            } else {
+                isShowingOnboarding = true
+            }
+        }
+        .onChange(of: hasCompletedOnboarding) {
+            // Settings → Show Welcome Screens Again.
+            if !hasCompletedOnboarding { isShowingOnboarding = true }
+        }
         .environment(importer)
+    }
+
+    private var hasExistingData: Bool {
+        let context = AppDatabase.context
+        let plans = (try? context.fetchCount(FetchDescriptor<StoredPlan>())) ?? 0
+        let days = (try? context.fetchCount(FetchDescriptor<DayRecord>())) ?? 0
+        return plans + days > 0
+    }
+
+    /// Opens the plan screen chosen on the last welcome page, once the welcome screens have closed.
+    private func runOnboardingNextStep() {
+        let step = onboardingNextStep
+        onboardingNextStep = .none
+        switch step {
+        case .importFile: importer.showFileImporter()
+        case .paste: importer.showPaste()
+        case .sample: importer.loadSample()
+        case .newPlan: importer.showNewPlan()
+        case .none: break
+        }
     }
 
     private func showNextPendingTask() {

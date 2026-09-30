@@ -10,6 +10,8 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                AppInstallSection()
+
                 if let settings = settingsRecords.first {
                     AlarmSettingsSection(settings: settings)
                     FollowUpSettingsSection(settings: settings)
@@ -101,6 +103,46 @@ private struct AlarmSettingsSection: View {
         }
         .onChange(of: settings.wakeToneID) {
             alarms.applyWakeSchedule(settings.wakeSchedule)
+        }
+    }
+}
+
+/// When this install expires (free Apple ID installs last 7 days), and the welcome screens.
+private struct AppInstallSection: View {
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = true
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var expiry = AppExpiry.current()
+
+    var body: some View {
+        Section {
+            if let expiry {
+                LabeledContent("App expires") {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(expiry.date.formatted(date: .abbreviated, time: .shortened))
+                            .foregroundStyle(expiry.isWarningDue() ? .red : .primary)
+                        Text(expiry.date.formatted(.relative(presentation: .named)))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if expiry.source == .estimatedFromInstall {
+                    Text("Estimated from the install date (7 days); the signing profile couldn't be read.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                LabeledContent("App expires", value: "Unknown")
+            }
+            Button("Show Welcome Screens Again", systemImage: "hand.wave") {
+                hasCompletedOnboarding = false
+            }
+        } header: {
+            Text("App")
+        } footer: {
+            Text("Apps installed with a free Apple ID stop opening after 7 days, and their alarms stop too. A “Reinstall PlanAlarm” alarm rings at 20:00 the evening before. Reinstall with Sideloadly (see the README); your plan and history are kept.")
+        }
+        .onChange(of: scenePhase) {
+            if scenePhase == .active { expiry = AppExpiry.current() }
         }
     }
 }

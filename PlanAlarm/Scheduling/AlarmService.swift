@@ -108,6 +108,55 @@ final class AlarmService {
             }
         }
         updateCheckInReminders()
+        await updateExpiryReminder()
+    }
+
+    // MARK: - Reinstall reminder
+
+    /// Keeps one "Reinstall PlanAlarm" alarm at 20:00 the evening before this install expires.
+    /// Re-evaluated on every activation, since each reinstall moves the expiry date.
+    func updateExpiryReminder() async {
+        guard authorization == .authorized, let expiry = AppExpiry.current() else { return }
+        let wanted = AppExpiry.reminderDate(for: expiry.date, now: .now)
+        if let current = registry.expiryReminder, current.date == wanted {
+            return
+        }
+        if let old = registry.expiryReminder {
+            try? manager.cancel(id: old.id)
+        }
+        registry.expiryReminder = nil
+        registry.save()
+        guard let wanted else { return }
+
+        let ring = ScheduledRing(id: UUID(), date: wanted)
+        registry.expiryReminder = ring
+        registry.save()
+        let scheduled = await scheduleAlarm(id: ring.id, configuration: expiryConfiguration(id: ring.id, at: wanted),
+                                            what: "the reinstall reminder")
+        if !scheduled {
+            registry.expiryReminder = nil
+            registry.save()
+        }
+    }
+
+    private func expiryConfiguration(id: UUID, at date: Date) -> AlarmManager.AlarmConfiguration<PlanAlarmData> {
+        let alert = makeAlert(
+            title: "Reinstall PlanAlarm: it stops working tomorrow",
+            stopLabel: "Stop",
+            secondaryButton: AlarmButton(text: "Open", textColor: .white, systemImageName: "arrow.clockwise")
+        )
+        let attributes = AlarmAttributes(
+            presentation: AlarmPresentation(alert: alert),
+            metadata: PlanAlarmData(kind: .wake),
+            tintColor: .red
+        )
+        return .alarm(
+            schedule: .fixed(date),
+            attributes: attributes,
+            stopIntent: nil,
+            secondaryIntent: OpenAppFromAlarmIntent(alarmID: id.uuidString),
+            sound: sound(for: settings.wakeTone)
+        )
     }
 
     // MARK: - Check-in reminder

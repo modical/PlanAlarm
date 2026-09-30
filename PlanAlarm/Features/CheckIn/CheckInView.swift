@@ -40,7 +40,7 @@ struct CheckInView: View {
             }
 
             Section {
-                AlarmPermissionBanner()
+                TodayBanners()
             }
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)

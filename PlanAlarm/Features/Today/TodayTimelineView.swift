@@ -65,7 +65,7 @@ struct TodayTimelineView: View {
             }
 
             Section {
-                AlarmPermissionBanner()
+                TodayBanners()
             }
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
