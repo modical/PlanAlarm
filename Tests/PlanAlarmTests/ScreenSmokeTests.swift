@@ -45,7 +45,7 @@ struct ScreenSmokeTests {
     }
 
     /// iPhone screen sizes in points: SE, mini, 16/17, 17 Pro, Plus/Pro Max (16 Pro Max is 440 wide).
-    static let screenSizes: [CGSize] = [
+    nonisolated static let screenSizes: [CGSize] = [
         CGSize(width: 320, height: 568), CGSize(width: 375, height: 812), CGSize(width: 390, height: 844),
         CGSize(width: 402, height: 874), CGSize(width: 430, height: 932), CGSize(width: 440, height: 956),
     ]
