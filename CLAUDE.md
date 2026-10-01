@@ -131,6 +131,20 @@ and say exactly what to reply afterwards.
   reinstalls only with the same Apple ID.
 - Onboarding (`Features/Onboarding`): shown on first launch unless plans/history exist (`hasCompletedOnboarding`
   AppStorage; Settings → Show Welcome Screens Again). Plan sheets open after it closes (`OnboardingNextStep`).
+- **Plan lifecycle rules (owner, v1.0 follow-up):**
+  - **Past days never change** with the plan (load, edit, replace, delete). A past day is its `DayRecord` +
+    `TaskRecord`s; the Plan tab shows recorded past days as recorded ("Checked in" / "No check-in") and only
+    allows **deleting a task by hand** (`DayStore.deleteRecord`, also in History's day view). Past dates can't
+    be planned (no Add/Edit/Clear/Reset before today).
+  - `DayStore.recordDaysWithoutCheckIn(before:)` (on activation, at midnight, in the check-in) records each
+    day since the last recorded one that passed without a check-in, from the plan in effect
+    (`DayRecord.checkedIn = false`): yesterday's tasks stay `.scheduled` (asked in "Did you do these?"), older
+    ones `.unlogged`. History: such a day with nothing done is "missed"; with no tasks, a rest day.
+  - **A locked-in day follows only its own plan** (`DayRecord.planKey`, `follows(_:)`): loading another plan or
+    deleting the plan leaves today's tasks/alarms (`DayStore.sync(extrasOnly: true)`); Unlock Day switches.
+  - Loading a plan whose start passed: `PlanStartChoice` — continue it (`Plan.continuing(from:)`, earlier
+    days skipped) or start from day 1 (`Plan.restarting(on:)`), on today / tomorrow / a chosen date.
+  - Archived plans: "Use This Plan Again" goes through the same preview (`ImportController.reuse`).
 - Plans can be deleted (active or archived). So history (phases 5–6) must **snapshot** task data
   (title, category, times) in its own records and must never depend on a `StoredPlan` still existing.
 

@@ -108,7 +108,20 @@ you tap **Use This Plan**:
 If a file has mistakes, the preview lists each one in plain words, e.g.
 `Monday, task 2: suggestedTime '25:00' is not a valid time.`
 
-Loading a new plan **archives** the old one (Plan tab → Archived plans). Your history is never deleted.
+Loading a new plan **archives** the old one (Plan tab → Archived plans → **Use This Plan Again** to go back).
+
+**What loading, replacing or deleting a plan never changes:**
+- **Past days.** Days that have passed stay exactly as they were, shown with what you did. The only way to
+  change one is to delete a task from it yourself: swipe it left in the Plan tab or in History → Delete.
+  (Days you didn't check in are recorded from the plan the next time you open the app; if that was
+  yesterday, the morning check-in asks "Did you do these?".)
+- **Today, once locked in.** It keeps its tasks and alarms; the new plan starts tomorrow. To switch today
+  to the new plan too, tap the open-lock button on Today (**Unlock Day**) and check in again.
+
+**A plan whose start date has passed:** the preview tells you and lets you choose:
+- **Continue it:** pick up where the plan is now, from **Today**, **Tomorrow**, or a date you pick
+  (the plan's earlier days are skipped), or
+- **Start from day 1:** move the whole plan so its first day is **Today**, **Tomorrow**, or a date you pick.
 
 ### Changing a plan in the app
 - **Add a task:** Plan tab → **Add Task** under a day → choose **Only that date** or **Every Monday** (etc.).
