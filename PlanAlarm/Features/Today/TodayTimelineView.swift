@@ -32,6 +32,12 @@ struct TodayTimelineView: View {
         activePlans.first.flatMap { PlanStore.plan(for: $0) }
     }
 
+    private var planChangedNote: String {
+        let lockedWith = dayRecord.planName.map { "“\($0)”" } ?? "no plan"
+        let newPlan = activePlans.first.map { "the new plan “\($0.name)”" } ?? "the plan change"
+        return "Today was locked in with \(lockedWith) and keeps its tasks; \(newPlan) applies from tomorrow. To switch today too, tap the open-lock button (Unlock Day)."
+    }
+
     private var currentAgenda: DayAgenda {
         DayAgenda(date: date, plan: currentPlan, extras: extras)
     }
@@ -60,6 +66,11 @@ struct TodayTimelineView: View {
                           systemImage: "lock.fill")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if !dayRecord.follows(activePlans.first) {
+                        Label(planChangedNote, systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                 }
                 .padding(.vertical, 4)
             }
@@ -140,8 +151,9 @@ struct TodayTimelineView: View {
 
     private func syncWithPlan() {
         do {
+            // A locked-in day follows edits to its own plan, not a newly loaded (or deleted) plan.
             let result = try DayStore.sync(date, with: currentAgenda, planDefaultReadSeconds: currentPlan?.defaultReadSeconds,
-                                           in: modelContext)
+                                           extrasOnly: !dayRecord.follows(activePlans.first), in: modelContext)
             TaskActions.removed(taskKeys: result.removedKeys)
             TaskActions.scheduleAlarms(for: result.added)
         } catch {

@@ -15,7 +15,10 @@ struct PlanWeekBrowser: View {
 
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ExtraTask.createdAt) private var allExtras: [ExtraTask]
+    @Query private var dayRecords: [DayRecord]
+    @Query(sort: \TaskRecord.order) private var taskRecords: [TaskRecord]
     @State private var weekStart: LocalDate
+    @State private var deletingRecord: TaskRecord?
     @State private var editRequest: TaskEditRequest?
     @State private var pendingDelete: PendingDelete?
     @State private var clearingDay: LocalDate?
@@ -60,6 +63,21 @@ struct PlanWeekBrowser: View {
         stored != nil && (plan?.contains(date) ?? false)
     }
 
+    /// Past days that were checked in, with what was recorded. They're shown as they happened, whatever
+    /// the plan says now (the active plan's browser only; archived plans show the plan itself).
+    private var recordedPastDays: [String: (note: String?, records: [TaskRecord], checkedIn: Bool)] {
+        guard isEditable else { return [:] }
+        let todayKey = today.description
+        var result: [String: (note: String?, records: [TaskRecord], checkedIn: Bool)] = [:]
+        for day in dayRecords where day.date < todayKey {
+            result[day.date] = (day.dayNote, [], day.checkedIn)
+        }
+        for record in taskRecords where record.date < todayKey {
+            result[record.date, default: (nil, [], true)].records.append(record)
+        }
+        return result
+    }
+
     var body: some View {
         List {
             Section {
@@ -81,15 +99,22 @@ struct PlanWeekBrowser: View {
                 weekNavigator
             } footer: {
                 if isEditable {
-                    Text("Swipe left on a task (or long-press it) to edit or delete it.")
+                    Text("Swipe left on a task (or long-press it) to edit or delete it. Past days you checked in show what happened and never change with the plan; you can only delete their tasks.")
                 }
             }
 
+            let recorded = recordedPastDays
             ForEach(weekAgendas) { agenda in
+                let past = recorded[agenda.day.date.description]
                 Section {
-                    daySection(agenda)
+                    if let past {
+                        recordedDaySection(date: agenda.day.date, note: past.note, records: past.records)
+                    } else {
+                        daySection(agenda)
+                    }
                 } header: {
-                    DayHeader(day: agenda.day, isToday: agenda.day.date == today)
+                    DayHeader(day: agenda.day, isToday: agenda.day.date == today, isRecorded: past != nil,
+                              wasCheckedIn: past?.checkedIn ?? true)
                 }
             }
 
@@ -147,6 +172,18 @@ struct PlanWeekBrowser: View {
         } message: { date in
             Text("Every task on \(date.longText) will be removed. Other days don't change.")
         }
+        .confirmationDialog(
+            "Delete “\(deletingRecord?.title ?? "")”?",
+            isPresented: .init(get: { deletingRecord != nil }, set: { if !$0 { deletingRecord = nil } }),
+            titleVisibility: .visible,
+            presenting: deletingRecord
+        ) { record in
+            Button("Delete from \(LocalDate(isoString: record.date)?.shortText ?? record.date)", role: .destructive) {
+                deletePastRecord(record)
+            }
+        } message: { _ in
+            Text("It's removed from that day and from your history. Nothing else changes.")
+        }
         .alert("Couldn't change the plan", isPresented: .init(
             get: { editError != nil },
             set: { if !$0 { editError = nil } }
@@ -157,15 +194,64 @@ struct PlanWeekBrowser: View {
         }
     }
 
+    /// A past, checked-in day: what was recorded, read-only except for deleting a task.
+    @ViewBuilder
+    private func recordedDaySection(date: LocalDate, note: String?, records: [TaskRecord]) -> some View {
+        if let note {
+            Text(note).foregroundStyle(.secondary)
+        }
+        if records.isEmpty {
+            Text("Rest day: nothing was planned").foregroundStyle(.secondary)
+        }
+        ForEach(records.sorted { ($0.scheduledFor ?? .distantFuture, $0.order) < ($1.scheduledFor ?? .distantFuture, $1.order) }) { record in
+            NavigationLink {
+                if let task = record.task {
+                    TaskDetailView(task: task)
+                }
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(record.scheduledFor.map { $0.formatted(date: .omitted, time: .shortened) } ?? "--:--")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(record.title)
+                            .strikethrough(record.status == .skipped)
+                        StatusChip(status: record.status)
+                    }
+                }
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    deletingRecord = record
+                }
+            }
+            .contextMenu {
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    deletingRecord = record
+                }
+            }
+        }
+    }
+
+    private func deletePastRecord(_ record: TaskRecord) {
+        let key = record.alarmKey
+        perform { try DayStore.deleteRecord(record, in: modelContext) }
+        TaskActions.removed(taskKeys: [key])
+    }
+
     @ViewBuilder
     private func daySection(_ agenda: DayAgenda) -> some View {
         let day = agenda.day
+        // Past days can't be planned any more; days you checked in are shown by `recordedDaySection`.
+        let canEdit = isEditable && day.date >= today
         if let note = day.dayNote {
             Text(note).foregroundStyle(.secondary)
         }
         if day.tasks.isEmpty {
             Text(plan != nil && !day.isInPlan ? "No tasks · outside the plan's dates" : "No tasks")
                 .foregroundStyle(.secondary)
+        } else if isEditable && day.date < today {
+            Text("Not checked in").font(.caption).foregroundStyle(.secondary)
         }
         ForEach(Array(day.tasks.enumerated()), id: \.offset) { index, task in
             let extra = agenda.extra(at: index)
@@ -175,17 +261,17 @@ struct PlanWeekBrowser: View {
                 TaskRow(task: task, note: extra == nil ? nil : "added in the app")
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                if isEditable {
+                if canEdit {
                     taskActions(task: task, index: index, date: day.date, extra: extra)
                 }
             }
             .contextMenu {
-                if isEditable {
+                if canEdit {
                     taskActions(task: task, index: index, date: day.date, extra: extra)
                 }
             }
         }
-        if isEditable {
+        if canEdit {
             HStack(spacing: 16) {
                 Button("Add Task", systemImage: "plus.circle") {
                     let intoPlan = editsGoIntoPlan(on: day.date)
@@ -305,6 +391,10 @@ struct PlanWeekBrowser: View {
 private struct DayHeader: View {
     let day: ResolvedDay
     let isToday: Bool
+    /// A past day shown as it was recorded (not from the plan).
+    var isRecorded = false
+    /// For a recorded day: whether it was checked in, or recorded afterwards.
+    var wasCheckedIn = true
 
     var body: some View {
         HStack(spacing: 8) {
@@ -315,7 +405,11 @@ private struct DayHeader: View {
                     .foregroundStyle(.tint)
             }
             Spacer()
-            if let mode = day.overrideMode {
+            if isRecorded {
+                Label(wasCheckedIn ? "Checked in" : "No check-in", systemImage: "lock.fill")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+            } else if let mode = day.overrideMode {
                 OverrideBadge(mode: mode)
             }
         }

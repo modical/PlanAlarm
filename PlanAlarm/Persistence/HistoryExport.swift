@@ -93,7 +93,7 @@ extension HistoryDay {
         var result: [LocalDate: HistoryDay] = [:]
         for day in dayRecords {
             guard let date = LocalDate(isoString: day.date) else { continue }
-            result[date] = HistoryDay(date: date, tasks: [])
+            result[date] = HistoryDay(date: date, tasks: [], checkedIn: day.checkedIn)
         }
         for record in taskRecords.sorted(by: { $0.order < $1.order }) {
             guard let date = LocalDate(isoString: record.date) else { continue }

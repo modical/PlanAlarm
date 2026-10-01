@@ -99,6 +99,8 @@ struct RootView: View {
             switch scenePhase {
             case .active:
                 today = .today()
+                // Days that passed without a check-in are recorded (and frozen) before anything else.
+                DayStore.recordDaysWithoutCheckIn(before: today)
                 // Until the day is locked in, opening the app goes to the morning check-in.
                 if !DayStore.isLockedIn(today) && importer.sheet == nil {
                     selection = .today
@@ -122,6 +124,7 @@ struct RootView: View {
                 try? await Task.sleep(for: .seconds(15))
                 if LocalDate.today() != today {
                     today = .today()
+                    DayStore.recordDaysWithoutCheckIn(before: today)
                 }
                 syncTaskStatuses()
                 router.showPendingTaskIfNeeded()

@@ -45,7 +45,29 @@ extension Plan {
     func movedToCover(_ today: LocalDate) -> Plan {
         guard !contains(today) else { return self }
         let weeks = Int((Double(startDate.days(until: today)) / 7).rounded(.down))
-        let offset = weeks * 7
+        return shifted(byDays: weeks * 7)
+    }
+
+    /// "Continue the plan" from `date`: the plan keeps its dates but starts on `date`, so the plan days
+    /// before it are skipped (their date changes are dropped). Nil if `date` is after the plan ends.
+    func continuing(from date: LocalDate) -> Plan? {
+        if let endDate, date > endDate { return nil }
+        guard date > startDate else { return self }
+        var plan = self
+        plan.startDate = date
+        plan.dateOverrides = dateOverrides.filter { $0.key >= date }
+        return plan
+    }
+
+    /// "Start from day 1" on `date`: the whole plan moves so its first day is `date`. The weekly routine
+    /// stays on the same weekdays; date-specific changes move with the plan.
+    func restarting(on date: LocalDate) -> Plan {
+        shifted(byDays: startDate.days(until: date))
+    }
+
+    /// Every date in the plan moved by `offset` days.
+    func shifted(byDays offset: Int) -> Plan {
+        guard offset != 0 else { return self }
         var moved = self
         moved.startDate = startDate.adding(days: offset)
         moved.endDate = endDate?.adding(days: offset)

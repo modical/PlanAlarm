@@ -33,12 +33,30 @@ final class DayRecord {
     var dayNote: String?
     var planName: String?
     var lockedInAt: Date = Date.now
+    /// The plan the day was locked in with: `StoredPlan.id` as a string, "none" for no plan,
+    /// or "" for days recorded before this was tracked.
+    var planKey: String = ""
+    /// False for a day that passed without a check-in and was recorded afterwards from the plan.
+    var checkedIn: Bool = true
 
-    init(date: LocalDate, dayNote: String?, planName: String?, lockedInAt: Date = .now) {
+    init(date: LocalDate, dayNote: String?, planName: String?, planKey: String, checkedIn: Bool = true,
+         lockedInAt: Date = .now) {
         self.date = date.description
         self.dayNote = dayNote
         self.planName = planName
+        self.planKey = planKey
+        self.checkedIn = checkedIn
         self.lockedInAt = lockedInAt
+    }
+
+    static func planKey(for stored: StoredPlan?) -> String {
+        stored?.id.uuidString ?? "none"
+    }
+
+    /// Whether the day still follows `active`: a locked-in day follows edits to the plan it was locked in
+    /// with, but not a different plan being loaded, or the plan being deleted.
+    func follows(_ active: StoredPlan?) -> Bool {
+        planKey.isEmpty || planKey == Self.planKey(for: active)
     }
 }
 
@@ -127,9 +145,9 @@ enum DayStore {
 
     /// Creates the day's records from the check-in. Skipped tasks are recorded as skipped (no alarm).
     @discardableResult
-    static func lockIn(date: LocalDate, dayNote: String?, planName: String?, items: [CheckInItem],
+    static func lockIn(date: LocalDate, dayNote: String?, planName: String?, planKey: String = "none", items: [CheckInItem],
                        now: Date = .now, in context: ModelContext = AppDatabase.context) throws -> [TaskRecord] {
-        context.insert(DayRecord(date: date, dayNote: dayNote, planName: planName, lockedInAt: now))
+        context.insert(DayRecord(date: date, dayNote: dayNote, planName: planName, planKey: planKey, lockedInAt: now))
         // After an unlock, records kept from earlier in the day come first.
         let firstOrder = (DayStore.records(on: date, in: context).map(\.order).max() ?? -1) + 1
         let records = items.enumerated().map { offset, item in
@@ -172,6 +190,54 @@ enum DayStore {
         return cancelled
     }
 
+    /// Records the days since the last recorded day that passed without a check-in, from the plan as it is
+    /// now. That is the plan that was in effect on those days: a plan can only be loaded, edited or deleted
+    /// with the app open, and this runs whenever the app opens. Yesterday's tasks stay open, so the morning
+    /// check-in asks "Did you do these?"; older days' tasks are recorded as not logged. Once recorded, a past
+    /// day never changes with the plan. Days before the first recorded day aren't touched.
+    @discardableResult
+    static func recordDaysWithoutCheckIn(before today: LocalDate,
+                                         in context: ModelContext = AppDatabase.context) -> [LocalDate] {
+        var latestDayDescriptor = FetchDescriptor<DayRecord>(sortBy: [SortDescriptor(\.date, order: .reverse)])
+        latestDayDescriptor.fetchLimit = 1
+        var latestTaskDescriptor = FetchDescriptor<TaskRecord>(sortBy: [SortDescriptor(\.date, order: .reverse)])
+        latestTaskDescriptor.fetchLimit = 1
+        let latestKeys = [(try? context.fetch(latestDayDescriptor))?.first?.date,
+                          (try? context.fetch(latestTaskDescriptor))?.first?.date].compactMap { $0 }
+        guard let latest = latestKeys.max().flatMap(LocalDate.init(isoString:)) else { return [] }
+
+        let yesterday = today.adding(days: -1)
+        let activePlans = (try? context.fetch(FetchDescriptor<StoredPlan>(predicate: #Predicate { $0.isActive == true }))) ?? []
+        let stored = activePlans.first
+        let planName = stored.flatMap { PlanStore.plan(for: $0) }?.name
+        var recorded: [LocalDate] = []
+        var date = latest.adding(days: 1)
+        // A safety cap: at most a year of days at once.
+        while date < today && recorded.count < 366 {
+            let agenda = DayAgenda.current(on: date, in: context)
+            let start = date.date(hour: 0, minute: 0)
+            context.insert(DayRecord(date: date, dayNote: agenda.day.dayNote, planName: planName,
+                                     planKey: DayRecord.planKey(for: stored), checkedIn: false, lockedInAt: start))
+            for (order, task) in agenda.day.tasks.enumerated() {
+                let time = task.suggestedTime.map { date.date(hour: $0.hour, minute: $0.minute) }
+                context.insert(TaskRecord(date: date, order: order, task: task, isExtra: order >= agenda.planTaskCount,
+                                          scheduledFor: time, status: date == yesterday ? .scheduled : .unlogged,
+                                          unlockSeconds: nil, lockedInAt: start))
+            }
+            recorded.append(date)
+            date = date.adding(days: 1)
+        }
+        if !recorded.isEmpty { try? context.save() }
+        return recorded
+    }
+
+    /// Deletes one task from a past day. Past days are otherwise never changed (not by loading, editing
+    /// or deleting plans), so this manual delete is the only way one changes.
+    static func deleteRecord(_ record: TaskRecord, in context: ModelContext = AppDatabase.context) throws {
+        context.delete(record)
+        try context.save()
+    }
+
     /// Brings a done, skipped or not-logged task back. It keeps its time; if that time has passed,
     /// it needs a new one before it can ring.
     static func undo(_ record: TaskRecord, in context: ModelContext = AppDatabase.context) throws {
@@ -196,11 +262,15 @@ enum DayStore {
     /// tasks new to the day are added (at their plan time if it's still ahead, otherwise without a time),
     /// and tasks no longer in the day are removed unless they were done or skipped during the day.
     /// Tasks are matched by title. Returns the added records and the alarm keys of removed ones.
-    static func sync(_ date: LocalDate, with agenda: DayAgenda, planDefaultReadSeconds: Int?, now: Date = .now,
+    /// With `extrasOnly` (the day was locked in with a different plan, or the plan was deleted) only tasks
+    /// added in the app are synced: the day keeps the plan tasks it was locked in with.
+    static func sync(_ date: LocalDate, with agenda: DayAgenda, planDefaultReadSeconds: Int?, extrasOnly: Bool = false,
+                     now: Date = .now,
                      in context: ModelContext = AppDatabase.context) throws -> (added: [TaskRecord], removedKeys: [String]) {
-        var unmatched = records(on: date, in: context)
+        var unmatched = records(on: date, in: context).filter { !extrasOnly || $0.isExtra }
         var newItems: [CheckInItem] = []
-        for item in CheckInPlanner.items(for: agenda, planDefaultReadSeconds: planDefaultReadSeconds, now: now) {
+        for item in CheckInPlanner.items(for: agenda, planDefaultReadSeconds: planDefaultReadSeconds, now: now)
+            where !extrasOnly || item.isExtra {
             if let index = unmatched.firstIndex(where: { $0.title == item.task.title && $0.isExtra == item.isExtra }) {
                 let record = unmatched.remove(at: index)
                 // Keep open tasks' details (exercise lists etc.) up to date with the plan.

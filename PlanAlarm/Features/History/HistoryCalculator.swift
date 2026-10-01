@@ -14,6 +14,8 @@ struct HistoryTask: Hashable, Sendable {
 struct HistoryDay: Hashable, Sendable {
     var date: LocalDate
     var tasks: [HistoryTask]
+    /// False for a day recorded afterwards because it passed without a check-in.
+    var checkedIn = true
 }
 
 /// How a day went, for the calendar colours and the perfect-day streak.
@@ -75,6 +77,7 @@ enum HistoryCalculator {
         let done = tasks.filter { $0.status == .done }.count
         if done == tasks.count { return .allDone }
         if date == today && tasks.contains(where: { !$0.status.isResolved }) { return .inProgress }
+        if done == 0 && !day.checkedIn { return .missed }
         return done == 0 ? .noneDone : .partial
     }
 

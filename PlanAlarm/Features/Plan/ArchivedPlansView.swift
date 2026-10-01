@@ -63,6 +63,7 @@ struct ArchivedPlansView: View {
 
 private struct ArchivedPlanDetail: View {
     let stored: StoredPlan
+    @Environment(ImportController.self) private var importer
 
     var body: some View {
         Group {
@@ -75,8 +76,15 @@ private struct ArchivedPlanDetail: View {
         .navigationTitle(stored.name)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                ShareLink(item: DayPlanFile(stored), preview: SharePreview(stored.name)) {
-                    Label("Share Plan as File", systemImage: "square.and.arrow.up")
+                Menu {
+                    Button("Use This Plan Again…", systemImage: "arrow.uturn.backward.circle") {
+                        importer.reuse(stored)
+                    }
+                    ShareLink(item: DayPlanFile(stored), preview: SharePreview(stored.name)) {
+                        Label("Share Plan as File", systemImage: "square.and.arrow.up")
+                    }
+                } label: {
+                    Label("Plan Options", systemImage: "ellipsis.circle")
                 }
             }
         }

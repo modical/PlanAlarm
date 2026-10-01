@@ -88,11 +88,19 @@ final class ImportController {
         }
     }
 
-    func confirm(_ pending: PendingImport, in context: ModelContext) throws {
-        guard pending.result.isValid, let plan = pending.result.plan, let json = pending.result.json else { return }
+    /// Uses the previewed plan. `plan` is the plan after the start-date choice; if it differs from the file,
+    /// the adjusted plan is saved.
+    func confirm(_ pending: PendingImport, plan: Plan, in context: ModelContext) throws {
+        guard pending.result.isValid, let original = pending.result.plan, let originalJSON = pending.result.json else { return }
+        let json = plan == original ? originalJSON : try PlanEncoder.encode(plan)
         try PlanStore.activate(plan, json: json, sourceName: pending.sourceName, in: context)
         sheet = nil
         importCount += 1
+    }
+
+    /// Opens an archived plan in the preview, to use it again.
+    func reuse(_ stored: StoredPlan) {
+        preview(stored.json, sourceName: "Archived plan “\(stored.name)”")
     }
 
     private func preview(_ data: Data, sourceName: String) {

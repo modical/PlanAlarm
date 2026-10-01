@@ -167,6 +167,8 @@ struct CheckInView: View {
         planName = plan?.name
 
         let yesterday = date.adding(days: -1)
+        // If yesterday passed without a check-in, its planned tasks are recorded now, so they're asked about.
+        DayStore.recordDaysWithoutCheckIn(before: date, in: modelContext)
         // Anything older than yesterday is no longer asked about.
         TaskActions.removed(taskKeys: DayStore.markUnlogged(before: yesterday, in: modelContext))
         carryOver = DayStore.unresolvedRecords(on: yesterday, in: modelContext)
@@ -187,7 +189,9 @@ struct CheckInView: View {
                         TaskActions.log(record, as: answer, in: modelContext)
                     }
                 }
-                let records = try DayStore.lockIn(date: date, dayNote: dayNote, planName: planName, items: items, in: modelContext)
+                let records = try DayStore.lockIn(date: date, dayNote: dayNote, planName: planName,
+                                                  planKey: DayRecord.planKey(for: activePlans.first),
+                                                  items: items, in: modelContext)
                 await alarms.scheduleTaskAlarms(records.compactMap(TaskActions.alarmRequest(for:)))
                 alarms.updateCheckInReminders()
             } catch {

@@ -338,6 +338,11 @@ private struct DayHistoryView: View {
     @Query private var records: [TaskRecord]
     @Query private var dayRecords: [DayRecord]
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @State private var deletingRecord: TaskRecord?
+
+    /// Only past days' tasks can be deleted here (today's are managed on the Today tab and in the plan).
+    private var canDelete: Bool { date < .today() }
 
     init(date: LocalDate, kind: DayKind) {
         self.date = date
@@ -360,10 +365,16 @@ private struct DayHistoryView: View {
                         if let plan = day.planName {
                             LabeledContent("Plan", value: plan)
                         }
-                        LabeledContent("Locked in", value: day.lockedInAt.formatted(date: .omitted, time: .shortened))
+                        if day.checkedIn {
+                            LabeledContent("Locked in", value: day.lockedInAt.formatted(date: .omitted, time: .shortened))
+                        } else {
+                            Text("No check-in that day: its planned tasks were recorded afterwards.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
-                Section("Tasks") {
+                Section {
                     if records.isEmpty {
                         Text(kind == .restDay ? "Rest day: no tasks." : "No tasks recorded.")
                             .foregroundStyle(.secondary)
@@ -380,8 +391,35 @@ private struct DayHistoryView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 2)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if canDelete {
+                                Button("Delete", systemImage: "trash", role: .destructive) {
+                                    deletingRecord = record
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Tasks")
+                } footer: {
+                    if canDelete && !records.isEmpty {
+                        Text("Swipe left on a task to delete it from this day.")
                     }
                 }
+            }
+            .confirmationDialog(
+                "Delete “\(deletingRecord?.title ?? "")”?",
+                isPresented: .init(get: { deletingRecord != nil }, set: { if !$0 { deletingRecord = nil } }),
+                titleVisibility: .visible,
+                presenting: deletingRecord
+            ) { record in
+                Button("Delete", role: .destructive) {
+                    let key = record.alarmKey
+                    try? DayStore.deleteRecord(record, in: modelContext)
+                    TaskActions.removed(taskKeys: [key])
+                }
+            } message: { _ in
+                Text("It's removed from this day and from your history. Nothing else changes.")
             }
             .navigationTitle(date.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
             .navigationBarTitleDisplayMode(.inline)
