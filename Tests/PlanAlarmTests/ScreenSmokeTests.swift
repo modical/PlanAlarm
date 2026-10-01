@@ -91,6 +91,12 @@ struct ScreenSmokeTests {
     }
 
     @Test(arguments: screenSizes)
+    func wakeUpWalk(size: CGSize) async throws {
+        try await show(WakeUpView(goal: 30, isEarly: false, onDone: {}, onCancel: {}), container: try makeContainer(), size: size)
+        try await show(WakeUpView(goal: 200, isEarly: true, onDone: {}, onCancel: {}), container: try makeContainer(), size: size)
+    }
+
+    @Test(arguments: screenSizes)
     func onboarding(size: CGSize) async throws {
         try await show(OnboardingView { _ in }, container: try makeContainer(), size: size)
     }

@@ -61,13 +61,11 @@ private struct AlarmSettingsSection: View {
             } label: {
                 LabeledContent("Wake-up alarm", value: wakeSummary)
             }
-            if let next = settings.wakeSchedule.nextAlarm(after: .now) {
-                LabeledContent("Next wake-up", value: next.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
-            }
-            Toggle("Check-in reminder", isOn: $settings.checkInReminderEnabled)
-            if settings.checkInReminderEnabled {
-                Stepper("Every \(settings.checkInReminderMinutes) min after wake-up",
-                        value: $settings.checkInReminderMinutes, in: 15...120, step: 15)
+            if settings.wakeEnabled {
+                if let next = alarms.nextWakeUp() {
+                    LabeledContent("Next wake-up", value: next.date.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
+                }
+                Stepper("Wake-up walk: \(settings.wakeSteps) steps", value: $settings.wakeSteps, in: 10...200, step: 10)
             }
             Stepper("Snooze: \(settings.snoozeMinutes) min", value: $settings.snoozeMinutes, in: 1...30)
             Stepper("Stop Alarm unlocks after \(settings.stopUnlockSeconds) s",
@@ -90,19 +88,16 @@ private struct AlarmSettingsSection: View {
         } header: {
             Text("Alarms")
         } footer: {
-            Text("If you haven't locked in your day by then, the check-in reminder rings (up to 4 times). A task alarm rings again every \(settings.snoozeMinutes) min, however it's stopped (Stop, slide, or the side and volume buttons), until you tap Stop Alarm in the app.")
+            Text("The wake-up alarm rings again after 9, 7 and 5 min, then every 3 min for up to 2 hours, until you walk the steps in PlanAlarm. A task alarm rings again every \(settings.snoozeMinutes) min, however it's stopped (Stop, slide, or the side and volume buttons), until you tap Stop Alarm in the app.")
         }
         .onChange(of: settings.wakeSchedule) {
-            alarms.applyWakeSchedule(settings.wakeSchedule)
+            alarms.rebuildWakeAlarms()
         }
-        .onChange(of: settings.checkInReminderEnabled) {
-            alarms.updateCheckInReminders()
-        }
-        .onChange(of: settings.checkInReminderMinutes) {
-            alarms.updateCheckInReminders()
+        .onChange(of: settings.wakeSteps) {
+            alarms.rebuildWakeAlarms()
         }
         .onChange(of: settings.wakeToneID) {
-            alarms.applyWakeSchedule(settings.wakeSchedule)
+            alarms.rebuildWakeAlarms()
         }
     }
 }
@@ -247,7 +242,7 @@ private struct DebugSection: View {
                 Text(message).font(.footnote).foregroundStyle(.secondary)
             }
             LabeledContent("Permission", value: alarms.permission.rawValue)
-            LabeledContent("Wake-up alarms", value: "\(alarms.registry.wakeAlarmIDs.count)")
+            LabeledContent("Wake-up rings set", value: "\(alarms.registry.wakeChains.values.map(\.count).reduce(0, +))")
             ForEach(alarms.registry.tasks) { entry in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.task.title)

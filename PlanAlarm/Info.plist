@@ -53,6 +53,9 @@
 	<!-- Shown in the alarm permission prompt. AlarmKit refuses to schedule alarms without it. -->
 	<key>NSAlarmKitUsageDescription</key>
 	<string>PlanAlarm rings like an alarm for your wake-up time and for each task in your daily plan, even in silent mode and Focus.</string>
+	<!-- Shown in the Motion & Fitness prompt: the wake-up walk counts steps to stop the wake-up alarm. -->
+	<key>NSMotionUsageDescription</key>
+	<string>PlanAlarm counts your steps on the wake-up walk, so the wake-up alarm only stops once you're out of bed.</string>
 	<!-- AlarmKit presents alarms as Live Activities. -->
 	<key>NSSupportsLiveActivities</key>
 	<true/>

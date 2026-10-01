@@ -129,16 +129,6 @@ struct CheckInPlannerTests {
         #expect(merged[1].time == noon)
         #expect(merged[2].isSkipped)
     }
-
-    @Test func checkInReminderTimes() throws {
-        let calendar = try cairo()
-        let dates = WakeSchedule.standard.checkInReminderDates(on: date("2026-10-05"), interval: 30 * 60, count: 4, calendar: calendar)
-        #expect(try dates == [at("2026-10-05", 7, 30), at("2026-10-05", 8, 0), at("2026-10-05", 8, 30), at("2026-10-05", 9, 0)])
-
-        var noFridays = WakeSchedule.standard
-        noFridays.rules[.friday] = WakeDayRule(isEnabled: false)
-        #expect(noFridays.checkInReminderDates(on: date("2026-10-09"), interval: 1800, count: 4, calendar: calendar).isEmpty)
-    }
 }
 
 @MainActor

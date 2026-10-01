@@ -16,7 +16,10 @@ final class AppSettings {
     /// `AlarmTone` raw values.
     var taskToneID: String = AlarmTone.system.rawValue
     var wakeToneID: String = AlarmTone.system.rawValue
-    /// Ring again if the day isn't locked in this long after the wake-up alarm, and every interval after.
+    /// Steps to walk in the app to stop the wake-up rings.
+    var wakeSteps: Int = 30
+    /// No longer used (the v1.0 check-in reminder, replaced by the repeating wake-up alarm).
+    /// Kept so existing databases open unchanged.
     var checkInReminderEnabled: Bool = true
     var checkInReminderMinutes: Int = 30
     /// "Did you finish …?" notification after a task starts.

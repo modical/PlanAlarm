@@ -42,11 +42,16 @@ struct PendingTaskAlarm: Codable, Hashable, Sendable, Identifiable {
 /// Which AlarmKit alarms belong to what. AlarmKit doesn't expose an alarm's metadata after scheduling,
 /// so the app keeps this small record itself (in UserDefaults: operational state, not user data).
 struct AlarmRegistry: Codable, Sendable {
+    /// Wake-up rings per date ("YYYY-MM-DD"). They stop when that day's wake-up walk is done.
+    var wakeChains: [String: [ScheduledRing]] = [:]
+    /// Days whose wake-up walk is done (the most recent 14).
+    var awakeDates: [String] = []
+    /// v1.0 only: one repeating alarm per wake-up time. Cancelled and cleared by the next wake-up update.
     var wakeAlarmIDs: [UUID] = []
     /// One-off debug alarms, kept so the clean-up in `AlarmService.refresh()` leaves them alone.
     var testAlarmIDs: [UUID] = []
     var tasks: [PendingTaskAlarm] = []
-    /// Check-in reminder rings per date ("YYYY-MM-DD"), for days not yet locked in.
+    /// v1.0 only: check-in reminder rings per date. Cancelled and cleared by the next wake-up update.
     var checkInChains: [String: [ScheduledRing]] = [:]
     /// The "Reinstall PlanAlarm" alarm before this install expires.
     var expiryReminder: ScheduledRing?
@@ -55,8 +60,11 @@ struct AlarmRegistry: Codable, Sendable {
 
     /// Every alarm ID the app knows about.
     var knownAlarmIDs: Set<UUID> {
-        Set(wakeAlarmIDs + testAlarmIDs + tasks.flatMap(\.alarmIDs) + checkInChains.values.flatMap { $0.map(\.id) }
-            + [expiryReminder?.id].compactMap { $0 })
+        var ids = Set(wakeAlarmIDs + testAlarmIDs + tasks.flatMap(\.alarmIDs))
+        ids.formUnion(wakeChains.values.flatMap { $0.map(\.id) })
+        ids.formUnion(checkInChains.values.flatMap { $0.map(\.id) })
+        if let expiryReminder { ids.insert(expiryReminder.id) }
+        return ids
     }
 
     static func load(from defaults: UserDefaults = .standard) -> AlarmRegistry {
@@ -89,6 +97,11 @@ struct AlarmRegistry: Codable, Sendable {
         tasks.removeAll { $0.key == key }
     }
 
+    /// Records that a day's wake-up walk is done.
+    mutating func markAwake(_ dateKey: String) {
+        awakeDates = Array(Set(awakeDates + [dateKey]).sorted().suffix(14))
+    }
+
     /// Ring times for a chain: `count` alarms, `interval` apart, starting at `first`.
     static func chainDates(startingAt first: Date, interval: TimeInterval, count: Int) -> [Date] {
         (0..<max(1, count)).map { first.addingTimeInterval(TimeInterval($0) * interval) }
@@ -103,13 +116,15 @@ struct AlarmRegistry: Codable, Sendable {
 
 extension AlarmRegistry {
     private enum CodingKeys: String, CodingKey {
-        case wakeAlarmIDs, testAlarmIDs, tasks, checkInChains, expiryReminder
+        case wakeChains, awakeDates, wakeAlarmIDs, testAlarmIDs, tasks, checkInChains, expiryReminder
     }
 
     /// Fields added in later versions may be missing from saved data; they default to empty
     /// instead of making the whole registry unreadable.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        wakeChains = try container.decodeIfPresent([String: [ScheduledRing]].self, forKey: .wakeChains) ?? [:]
+        awakeDates = try container.decodeIfPresent([String].self, forKey: .awakeDates) ?? []
         wakeAlarmIDs = try container.decodeIfPresent([UUID].self, forKey: .wakeAlarmIDs) ?? []
         testAlarmIDs = try container.decodeIfPresent([UUID].self, forKey: .testAlarmIDs) ?? []
         tasks = try container.decodeIfPresent([PendingTaskAlarm].self, forKey: .tasks) ?? []

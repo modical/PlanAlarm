@@ -26,6 +26,19 @@ struct RootView: View {
         )
     }
 
+    private var isShowingWakeUp: Binding<Bool> {
+        Binding(
+            get: { router.wakeUpDay != nil },
+            set: { if !$0 { router.wakeUpDay = nil } }
+        )
+    }
+
+    /// The walk was opened from Today before the wake-up time.
+    private var isEarlyWakeUp: Bool {
+        guard let day = router.wakeUpDay, let first = AppSettings.current().wakeSchedule.ringDates(on: day).first else { return false }
+        return first > .now
+    }
+
     var body: some View {
         @Bindable var importer = importer
 
@@ -95,6 +108,19 @@ struct RootView: View {
                 showNextPendingTask()
             }
         }
+        // The wake-up walk takes over the screen until it's done; the wake-up rings stop with it.
+        .fullScreenCover(isPresented: isShowingWakeUp) {
+            WakeUpView(goal: AppSettings.current().wakeSteps, isEarly: isEarlyWakeUp) {
+                if let day = router.wakeUpDay {
+                    alarms.confirmAwake(on: day)
+                }
+                router.wakeUpDay = nil
+                selection = .today
+                router.showPendingTaskIfNeeded()
+            } onCancel: {
+                router.wakeUpDay = nil
+            }
+        }
         .onChange(of: scenePhase, initial: true) {
             switch scenePhase {
             case .active:
@@ -109,11 +135,12 @@ struct RootView: View {
                     await TaskActions.reconcile()
                     await alarms.refresh()
                     syncTaskStatuses()
+                    router.showWakeUpIfNeeded()
                     router.showPendingTaskIfNeeded()
                 }
             case .background:
-                // Plan edits may have given today or tomorrow its first tasks (or removed the last ones).
-                alarms.updateCheckInReminders()
+                // Top up the wake-up rings (the next wake-up may have moved on since the last refresh).
+                alarms.updateWakeAlarms()
             default:
                 break
             }
@@ -127,6 +154,7 @@ struct RootView: View {
                     DayStore.recordDaysWithoutCheckIn(before: today)
                 }
                 syncTaskStatuses()
+                router.showWakeUpIfNeeded()
                 router.showPendingTaskIfNeeded()
             }
         }

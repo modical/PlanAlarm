@@ -16,7 +16,7 @@ struct WakeSettingsView: View {
                     ), displayedComponents: .hourAndMinute)
                 }
             } footer: {
-                Text("Rings every day at this time, through silent mode and Focus. Change single days below.")
+                Text("Rings at this time through silent mode and Focus, then again and again until you walk \(settings.wakeSteps) steps in PlanAlarm. Change single days below.")
             }
 
             if settings.wakeEnabled {

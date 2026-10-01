@@ -45,10 +45,14 @@ final class AlarmService {
     /// The last scheduling problem, shown in Settings.
     var lastError: String?
 
-    private var pendingWakeSchedule: WakeSchedule?
-    private var isApplyingWakeSchedule = false
-    private var needsCheckInUpdate = false
-    private var isUpdatingCheckIn = false
+    /// The alarms iOS reported at the last check, or nil if it couldn't be read.
+    private(set) var liveAlarmIDs: Set<UUID>?
+
+    private var needsWakeUpdate = false
+    private var needsWakeRebuild = false
+    private var isUpdatingWake = false
+    private var needsNotificationUpdate = false
+    private var isUpdatingNotifications = false
     /// Alarms being scheduled right now; the orphan clean-up must not touch them.
     private var inFlightIDs: Set<UUID> = []
 
@@ -92,34 +96,39 @@ final class AlarmService {
             lastError = "Couldn't ask for alarm permission: \(error.localizedDescription)"
         }
         if authorization == .authorized {
-            applyWakeSchedule(settings.wakeSchedule)
+            rebuildWakeAlarms()
         }
     }
 
     /// Call when the app becomes active (after `TaskActions.reconcile()`): refreshes permission, removes
-    /// alarms the app no longer knows, restores missing wake alarms, restarts the chain of any waiting task
-    /// that ran out of rings, and updates the check-in and reinstall reminders.
+    /// alarms the app no longer knows, restarts the chain of any waiting task that ran out of rings, tops up
+    /// the wake-up rings, and updates the reinstall reminder and the backup notifications.
     func refresh() async {
         authorization = manager.authorizationState
-        guard authorization == .authorized, let live = try? manager.alarms else { return }
-        let liveIDs = Set(live.map(\.id))
+        guard authorization == .authorized else { return }
+        if let live = try? manager.alarms {
+            let liveIDs = Set(live.map(\.id))
+            liveAlarmIDs = liveIDs
 
-        let known = registry.knownAlarmIDs.union(inFlightIDs)
-        for id in liveIDs where !known.contains(id) {
-            try? manager.cancel(id: id)
-        }
-
-        if !isApplyingWakeSchedule && (registry.wakeAlarmIDs.isEmpty || !registry.wakeAlarmIDs.allSatisfy(liveIDs.contains)) {
-            applyWakeSchedule(settings.wakeSchedule)
-        }
-
-        for entry in registry.tasks where entry.isPendingAcknowledgement() {
-            let hasLiveFutureRing = entry.rings.contains { $0.date > .now && liveIDs.contains($0.id) }
-            if !hasLiveFutureRing {
-                await rechain(key: entry.key, startingAt: .now.addingTimeInterval(snoozeInterval))
+            let known = registry.knownAlarmIDs.union(inFlightIDs)
+            for id in liveIDs where !known.contains(id) {
+                try? manager.cancel(id: id)
             }
+
+            for entry in registry.tasks where entry.isPendingAcknowledgement() {
+                let hasLiveFutureRing = entry.rings.contains { $0.date > .now && liveIDs.contains($0.id) }
+                if !hasLiveFutureRing {
+                    await rechain(key: entry.key, startingAt: .now.addingTimeInterval(snoozeInterval))
+                }
+            }
+        } else {
+            liveAlarmIDs = nil
+            lastError = "iOS didn't say which alarms are set. Reopen the app; if this stays, restart the iPhone."
         }
-        updateCheckInReminders()
+        if settings.wakeEnabled, await FollowUpService.permission() == .notAsked {
+            await FollowUpService.ensurePermission()
+        }
+        updateWakeAlarms()
         await updateExpiryReminder()
     }
 
@@ -171,81 +180,146 @@ final class AlarmService {
         )
     }
 
-    // MARK: - Check-in reminder
+    // MARK: - Wake-up alarm
 
-    /// Keeps the check-in reminder rings in step with the wake-up schedule, the settings, and which days
-    /// are locked in: for today and tomorrow, if the day has tasks and isn't locked in, ring every
-    /// interval after the wake-up time (4 times). Days with nothing planned aren't nagged.
-    /// Calls made while an update is running are merged.
-    func updateCheckInReminders() {
-        needsCheckInUpdate = true
-        guard !isUpdatingCheckIn else { return }
-        isUpdatingCheckIn = true
+    /// Days whose wake-up walk is done.
+    var awakeDays: Set<String> { Set(registry.awakeDates) }
+
+    /// True while the wake-up rings are being set.
+    var isUpdatingWakeAlarms: Bool { isUpdatingWake }
+
+    /// The day whose wake-up walk is due right now, if any.
+    func pendingWakeUp(now: Date = .now) -> LocalDate? {
+        settings.wakeSchedule.pendingWakeUp(now: now, awake: awakeDays)
+    }
+
+    /// The next wake-up still to ring, and whether its first ring is really set in iOS
+    /// (nil when iOS couldn't be asked).
+    func nextWakeUp(now: Date = .now) -> (date: Date, isSet: Bool?)? {
+        guard let next = settings.wakeSchedule.nextWakeUp(after: now, awake: awakeDays) else { return nil }
+        let ring = registry.wakeChains[next.day.description]?.first { Self.sameTime($0.date, next.date) }
+        guard let liveAlarmIDs else { return (next.date, nil) }
+        return (next.date, ring.map { liveAlarmIDs.contains($0.id) } ?? false)
+    }
+
+    /// The wake-up walk is done: that day's rings and their notifications stop.
+    func confirmAwake(on day: LocalDate) {
+        let key = day.description
+        registry.markAwake(key)
+        for ring in registry.wakeChains[key] ?? [] {
+            try? manager.cancel(id: ring.id)
+        }
+        registry.wakeChains[key] = nil
+        registry.save()
+        updateWakeAlarms()
+        Task { await BackupNotifications.clearDelivered(thread: BackupNotifications.wakeThread) }
+    }
+
+    /// Replaces every wake-up ring (after the wake-up times, tone or step count change).
+    func rebuildWakeAlarms() {
+        needsWakeRebuild = true
+        updateWakeAlarms()
+    }
+
+    /// Keeps the wake-up rings in step with the settings and the days already confirmed: the next wake-up
+    /// gets its whole chain of rings (see `WakeSchedule.ringOffsetMinutes`), later ones fewer, topped up
+    /// on every refresh. Rings iOS lost are scheduled again. Calls made while an update runs are merged.
+    func updateWakeAlarms() {
+        needsWakeUpdate = true
+        guard !isUpdatingWake else { return }
+        isUpdatingWake = true
         Task {
-            while needsCheckInUpdate {
-                needsCheckInUpdate = false
-                await syncCheckInReminders()
+            while needsWakeUpdate {
+                needsWakeUpdate = false
+                let rebuild = needsWakeRebuild
+                needsWakeRebuild = false
+                await syncWakeRings(rebuild: rebuild)
             }
-            isUpdatingCheckIn = false
+            isUpdatingWake = false
+            updateBackupNotifications()
         }
     }
 
-    private func syncCheckInReminders() async {
+    private func syncWakeRings(rebuild: Bool) async {
         guard authorization != .denied else { return }
-        let settings = self.settings
-        let interval = TimeInterval(max(5, settings.checkInReminderMinutes) * 60)
-        let today = LocalDate.today()
+        cancelOldWakeAlarms()
         let now = Date.now
-        var keep: Set<String> = []
+        let wanted = settings.wakeSchedule.plannedRings(now: now, awake: awakeDays)
+        let live = (try? manager.alarms).map { Set($0.map(\.id)) }
 
-        for date in [today, today.adding(days: 1)] {
-            let key = date.description
-            let needsCheckIn = settings.checkInReminderEnabled && !DayStore.isLockedIn(date)
-                && !DayAgenda.current(on: date).day.tasks.isEmpty
-            let wanted = needsCheckIn
-                ? settings.wakeSchedule.checkInReminderDates(on: date, interval: interval, count: 4).filter { $0 > now }
-                : []
-            let existing = registry.checkInChains[key] ?? []
-            if existing.filter({ $0.date > now }).map(\.date) == wanted {
-                if !wanted.isEmpty { keep.insert(key) }
-                continue
-            }
-            existing.forEach { try? manager.cancel(id: $0.id) }
-            registry.checkInChains[key] = nil
-            registry.save()
-            guard !wanted.isEmpty else { continue }
-
-            let rings = wanted.map { ScheduledRing(id: UUID(), date: $0) }
-            registry.checkInChains[key] = rings
-            registry.save()
-            var scheduled: [ScheduledRing] = []
-            for ring in rings {
-                let configuration = checkInConfiguration(id: ring.id, at: ring.date)
-                let result = await scheduleAlarm(id: ring.id, configuration: configuration, what: "the check-in reminder")
-                guard result == .scheduled else { break }
-                scheduled.append(ring)
-            }
-            registry.checkInChains[key] = scheduled
-            registry.save()
-            keep.insert(key)
-        }
-
-        for (key, rings) in registry.checkInChains where !keep.contains(key) {
+        for (key, rings) in registry.wakeChains where rebuild || wanted[key] == nil {
             rings.forEach { try? manager.cancel(id: $0.id) }
-            registry.checkInChains[key] = nil
+            registry.wakeChains[key] = nil
         }
+        registry.save()
+
+        for key in wanted.keys.sorted() {
+            let dates = wanted[key] ?? []
+            // Keep rings still wanted and still set in iOS; replace the rest.
+            var kept: [ScheduledRing] = []
+            for ring in registry.wakeChains[key] ?? [] {
+                let isWanted = ring.date > now && dates.contains { Self.sameTime($0, ring.date) }
+                if isWanted && (live?.contains(ring.id) ?? true) {
+                    kept.append(ring)
+                } else {
+                    try? manager.cancel(id: ring.id)
+                }
+            }
+            let missing = dates.filter { date in !kept.contains { Self.sameTime($0.date, date) } }
+                .map { ScheduledRing(id: UUID(), date: $0) }
+            registry.wakeChains[key] = (kept + missing).sorted { $0.date < $1.date }
+            registry.save()
+
+            var failed: Set<UUID> = []
+            for (index, ring) in missing.enumerated() {
+                let result = await scheduleAlarm(id: ring.id, configuration: wakeConfiguration(id: ring.id, at: ring.date),
+                                                 what: "the wake-up alarm")
+                if result == .scheduled {
+                    // The walk was done (or the settings changed) while this was being scheduled.
+                    if !(registry.wakeChains[key]?.contains(ring) ?? false) {
+                        try? manager.cancel(id: ring.id)
+                    }
+                } else {
+                    failed.insert(ring.id)
+                    if result == .limitReached {
+                        failed.formUnion(missing[index...].map(\.id))
+                        break
+                    }
+                }
+            }
+            if let current = registry.wakeChains[key] {
+                registry.wakeChains[key] = current.filter { !failed.contains($0.id) }
+                registry.save()
+            }
+        }
+        liveAlarmIDs = (try? manager.alarms).map { Set($0.map(\.id)) }
+    }
+
+    /// v1.0 used one repeating alarm per wake-up time and separate check-in reminder rings; both are
+    /// replaced by the wake-up chains.
+    private func cancelOldWakeAlarms() {
+        guard !registry.wakeAlarmIDs.isEmpty || !registry.checkInChains.isEmpty else { return }
+        registry.wakeAlarmIDs.forEach { try? manager.cancel(id: $0) }
+        registry.checkInChains.values.joined().forEach { try? manager.cancel(id: $0.id) }
+        registry.wakeAlarmIDs = []
+        registry.checkInChains = [:]
         registry.save()
     }
 
-    private func checkInConfiguration(id: UUID, at date: Date) -> AlarmManager.AlarmConfiguration<PlanAlarmData> {
+    /// Ring times are recomputed on every update; saved ones are compared with a little tolerance.
+    private static func sameTime(_ lhs: Date, _ rhs: Date) -> Bool {
+        abs(lhs.timeIntervalSince(rhs)) < 1
+    }
+
+    private func wakeConfiguration(id: UUID, at date: Date) -> AlarmManager.AlarmConfiguration<PlanAlarmData> {
         let alert = makeAlert(
-            title: "Check in: lock in your day",
+            title: LocalizedStringResource(stringLiteral: "Good morning! Walk \(settings.wakeSteps) steps in PlanAlarm to stop this"),
             stopLabel: "Stop",
-            secondaryButton: AlarmButton(text: "Open", textColor: .white, systemImageName: "checklist")
+            secondaryButton: AlarmButton(text: "Open", textColor: .white, systemImageName: "figure.walk")
         )
         let attributes = AlarmAttributes(
             presentation: AlarmPresentation(alert: alert),
-            metadata: PlanAlarmData(kind: .checkIn),
+            metadata: PlanAlarmData(kind: .wake),
             tintColor: .orange
         )
         return .alarm(
@@ -257,68 +331,42 @@ final class AlarmService {
         )
     }
 
-    // MARK: - Wake-up alarm
+    // MARK: - Backup notifications
 
-    /// Replaces the wake-up alarms with ones matching `schedule`. Calls made while an update is
-    /// running are merged, so rapid settings changes never leave duplicate alarms.
-    func applyWakeSchedule(_ schedule: WakeSchedule) {
-        pendingWakeSchedule = schedule
-        guard !isApplyingWakeSchedule else { return }
-        isApplyingWakeSchedule = true
+    /// Plain notifications with the alarm rings: every wake-up ring, and each waiting task's next 3 rings
+    /// (iOS keeps only the 64 soonest notifications). Calls made while an update runs are merged.
+    func updateBackupNotifications() {
+        needsNotificationUpdate = true
+        guard !isUpdatingNotifications else { return }
+        isUpdatingNotifications = true
         Task {
-            while let next = pendingWakeSchedule {
-                pendingWakeSchedule = nil
-                await replaceWakeAlarms(with: next)
+            while needsNotificationUpdate {
+                needsNotificationUpdate = false
+                await BackupNotifications.sync(backupNotificationItems())
             }
-            isApplyingWakeSchedule = false
-            updateCheckInReminders()
+            isUpdatingNotifications = false
         }
     }
 
-    private func replaceWakeAlarms(with schedule: WakeSchedule) async {
-        guard authorization != .denied else { return }
-        for id in registry.wakeAlarmIDs {
-            try? manager.cancel(id: id)
+    private func backupNotificationItems() -> [BackupNotifications.Item] {
+        let now = Date.now
+        let steps = settings.wakeSteps
+        var items: [BackupNotifications.Item] = []
+        for ring in registry.wakeChains.values.joined() where ring.date > now {
+            items.append(BackupNotifications.Item(
+                id: ring.id.uuidString, date: ring.date, title: "Wake up!",
+                body: "Walk \(steps) steps in PlanAlarm to stop the wake-up alarm.", thread: BackupNotifications.wakeThread
+            ))
         }
-        registry.wakeAlarmIDs = []
-        registry.save()
-
-        for group in schedule.alarmGroups {
-            let id = UUID()
-            let relative = Alarm.Schedule.Relative(
-                time: .init(hour: group.time.hour, minute: group.time.minute),
-                repeats: .weekly(group.weekdays.map(\.localeWeekday))
-            )
-            registry.wakeAlarmIDs.append(id)
-            registry.save()
-            let configuration = wakeConfiguration(id: id, schedule: .relative(relative))
-            let result = await scheduleAlarm(id: id, configuration: configuration, what: "the wake-up alarm")
-            if result != .scheduled {
-                registry.wakeAlarmIDs.removeAll { $0 == id }
-                registry.save()
+        for entry in registry.tasks {
+            for ring in entry.rings.filter({ $0.date > now }).prefix(3) {
+                items.append(BackupNotifications.Item(
+                    id: ring.id.uuidString, date: ring.date, title: entry.task.title,
+                    body: "Open PlanAlarm to read the task.", thread: entry.key
+                ))
             }
         }
-        authorization = manager.authorizationState
-    }
-
-    private func wakeConfiguration(id: UUID, schedule: Alarm.Schedule) -> AlarmManager.AlarmConfiguration<PlanAlarmData> {
-        let alert = makeAlert(
-            title: "Good morning! Time to plan your day",
-            stopLabel: "Stop",
-            secondaryButton: AlarmButton(text: "Open", textColor: .white, systemImageName: "sun.max")
-        )
-        let attributes = AlarmAttributes(
-            presentation: AlarmPresentation(alert: alert),
-            metadata: PlanAlarmData(kind: .wake),
-            tintColor: .orange
-        )
-        return .alarm(
-            schedule: schedule,
-            attributes: attributes,
-            stopIntent: nil,
-            secondaryIntent: OpenAppFromAlarmIntent(alarmID: id.uuidString),
-            sound: sound(for: settings.wakeTone)
-        )
+        return items
     }
 
     // MARK: - Task alarms
@@ -367,6 +415,8 @@ final class AlarmService {
         cancelRings(of: entry)
         registry.removeTask(forKey: taskKey)
         registry.save()
+        updateBackupNotifications()
+        Task { await BackupNotifications.clearDelivered(thread: taskKey) }
     }
 
     /// Removes every task alarm (debug tool).
@@ -376,6 +426,7 @@ final class AlarmService {
         }
         registry.tasks = []
         registry.save()
+        updateBackupNotifications()
     }
 
     /// Seconds before Stop Alarm unlocks for this task.
@@ -454,6 +505,7 @@ final class AlarmService {
             }
         }
         registry.save()
+        updateBackupNotifications()
     }
 
     private func cancelRings(of entry: PendingTaskAlarm) {
@@ -550,7 +602,7 @@ final class AlarmService {
         let id = UUID()
         registry.testAlarmIDs = Array((registry.testAlarmIDs + [id]).suffix(5))
         registry.save()
-        _ = await scheduleAlarm(id: id, configuration: wakeConfiguration(id: id, schedule: .fixed(.now.addingTimeInterval(60))),
+        _ = await scheduleAlarm(id: id, configuration: wakeConfiguration(id: id, at: .now.addingTimeInterval(60)),
                                 what: "the test wake-up alarm")
     }
 

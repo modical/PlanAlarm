@@ -141,14 +141,21 @@ They're kept in the app rather than in the plan file, so they stay when you load
 ## 6. Your day: morning check-in and task alarms
 
 ### Morning check-in
-1. The **wake-up alarm** rings (default 07:00; Settings → Alarms → Wake-up alarm).
-2. Open PlanAlarm: **Today** shows the **Morning Check-in**.
+1. The **wake-up alarm** rings (default 07:00; Settings → Alarms → Wake-up alarm). However you stop it, it
+   rings again after 9, 7 and 5 minutes, then every 3 minutes, for up to 2 hours.
+2. Open PlanAlarm (the alarm's **Open** button, or any other way): the **wake-up walk** shows. Walk the
+   steps (default 30) with your phone, then tap **I'm Up**: the wake-up rings stop. (No Motion & Fitness
+   access? Stay on the screen for 60 seconds instead.) Already up before the alarm? Today has
+   **"Up already? Walk now"**. Today always says when the next wake-up rings, or that it's off.
+3. **Today** shows the **Morning Check-in**.
    - Yesterday's unfinished tasks ask **"Did you do these?"**: answer Done or Skipped.
    - Each task has a time from the plan: change it, tap **Set time** if it has none, or switch on
      **Skip today**. Tasks whose time already passed move to 15 minutes from now (highlighted).
      Overlapping tasks show a warning.
-3. Tap **Lock In My Day**: every task gets its alarm.
-4. Not locked in yet? A **check-in reminder** rings 30 min after the wake-up alarm, then every 30 min (4 times).
+4. Tap **Lock In My Day**: every task gets its alarm.
+
+A plain notification also comes with each wake-up ring and with a task's next rings, as a second net on
+the Lock Screen (it's silent in silent mode; the alarms are what really ring).
 
 ### During the day (Today timeline)
 - Change a task's time before it rings (the alarm moves), or mark it **Done** / **Skip**.
@@ -192,7 +199,7 @@ History is kept when you load, edit or delete plans, and across reinstalls (same
 |---|---|---|
 | App expiry date, welcome screens | | Settings → App |
 | Wake-up alarm (time, per-day on/off and times) | 07:00 every day | Settings → Alarms → Wake-up alarm |
-| Check-in reminder (if not locked in) | on, every 30 min after wake-up | Settings → Alarms |
+| Wake-up walk (steps to stop the wake-up rings) | 30 steps | Settings → Alarms |
 | Snooze length (task alarms ring again) | 5 min | Settings → Alarms |
 | Read time before the read screen's buttons unlock | 30 s (a task's own time in the plan wins) | Settings → Alarms |
 | Task alarm tone / wake-up tone | iPhone Alarm | Settings → Alarms |

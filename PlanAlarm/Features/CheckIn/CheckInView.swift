@@ -62,7 +62,7 @@ struct CheckInView: View {
 
             Section {
                 if items.isEmpty {
-                    Text("Nothing scheduled today. Lock in to stop the check-in reminder.")
+                    Text("Nothing scheduled today. Lock in to start your day.")
                         .foregroundStyle(.secondary)
                 }
                 ForEach($items) { $item in
@@ -193,7 +193,6 @@ struct CheckInView: View {
                                                   planKey: DayRecord.planKey(for: activePlans.first),
                                                   items: items, in: modelContext)
                 await alarms.scheduleTaskAlarms(records.compactMap(TaskActions.alarmRequest(for:)))
-                alarms.updateCheckInReminders()
             } catch {
                 errorText = error.localizedDescription
             }

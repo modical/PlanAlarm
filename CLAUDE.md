@@ -30,6 +30,9 @@ Read this whole file before changing anything. Keep it up to date when behaviour
   days, today keeps its lock-in when the plan changes, start-date choice for late plans, "Use This Plan
   Again", recording days without a check-in. Not yet released (owner wants more changes first; when
   ready, release as v1.1).
+- **First real morning (1 Oct 2026, build 27) failed:** the wake alarm rang once and was stopped (it had no
+  repeats), the check-in reminder skipped the day because it had no tasks, and the Clock app's alarm at the
+  same time competed with it. Fixed by the **wake-up chain + wake-up walk** (see §6 Alarms).
 - **On-device testing is far behind.** Confirmed on the phone: sideload works (build 1), Stop didn't snooze
   (build 11, fixed by backup-ring chains), History crash (build 19, fixed in 23). Everything after build 12
   is **untested on the phone**: backup rings vs slide/side/volume buttons, tones, check-in + reminders,
@@ -91,9 +94,9 @@ PlanAlarm/
                   DayAgenda, DayRecords (DayRecord, TaskRecord, TaskStatus, DayStore), HistoryExport,
                   DayPlanFile (share a plan)
   Scheduling/     ALL AlarmKit code: AlarmService, AlarmIntents, AlarmRegistry, WakeSchedule, AlarmTone
-  Notifications/  FollowUpService + NotificationDelegate
-  Features/       CheckIn, Today, TaskAlarm (read screen), TaskDetail, Plan, PlanEditing, Import,
-                  History, Settings, Onboarding, Shared (TaskActions, banners, Formatting)
+  Notifications/  FollowUpService + NotificationDelegate, BackupNotifications
+  Features/       CheckIn, Today, WakeUp (walk + StepCounter), TaskAlarm (read screen), TaskDetail, Plan,
+                  PlanEditing, Import, History, Settings, Onboarding, Shared (TaskActions, banners, Formatting)
   Resources/      Assets (icon), Sounds/tone-*.wav (generated in-house)
 Samples/sample-october.dayplan   bundled into the app via project.yml (single copy)
 docs/PLAN_FORMAT.md              the .dayplan schema v1, written for AIs that generate plans
@@ -111,19 +114,21 @@ PlanAlarm/Info.plist             extra keys (UTType export, document types, NSAl
   with), dayNote, planName, lockedInAt. `TaskRecord` — one task on one day: snapshot of the task (JSON),
   title/category, `TaskStatus` (scheduled → ringing → inProgress → done | skipped, or unlogged), chosen time,
   timestamps, snooze count, `alarmKey` (= its UUID string). **History and past days come only from these.**
-- `AppSettings` (single record): wake schedule (enabled, time, per-weekday rules), snooze minutes,
-  stopUnlockSeconds (read time), task/wake tones, check-in reminder (on, minutes), follow-up on.
+- `AppSettings` (single record): wake schedule (enabled, time, per-weekday rules), wakeSteps, snooze
+  minutes, stopUnlockSeconds (read time), task/wake tones, follow-up on. (`checkInReminder*` are unused
+  leftovers from v1.0, kept so old databases open.)
 - `AlarmRegistry` (UserDefaults, not SwiftData): which AlarmKit alarm IDs belong to what (task ring chains,
-  wake alarms, check-in chains, expiry reminder, test alarms). AlarmKit exposes no metadata.
+  wake chains per date, awakeDates, expiry reminder, test alarms; `wakeAlarmIDs`/`checkInChains` are v1.0
+  leftovers, cancelled and cleared on the first wake update). AlarmKit exposes no metadata.
 
 **One door for task changes:** every task state change goes through `TaskActions` (Features/Shared), which
 keeps `TaskRecord`s, alarm chains (AlarmService) and follow-ups (FollowUpService) in step.
 
 **App activation sequence (RootView):** `DayStore.recordDaysWithoutCheckIn` → switch to Today if not locked
-in → `TaskActions.reconcile()` → `AlarmService.refresh()` (orphan clean-up, wake alarms, chains that ran out,
-check-in + expiry reminders) → mark ringing tasks → show a waiting task's read screen. A 15-s loop also
-catches alarms going off while open and the date changing at midnight. Going to the background refreshes
-the check-in reminders.
+in → `TaskActions.reconcile()` → `AlarmService.refresh()` (orphan clean-up, chains that ran out, asks for
+notification permission once, wake chains, expiry reminder, backup notifications) → mark ringing tasks →
+show the wake-up walk if due, else a waiting task's read screen. A 15-s loop also catches alarms going off
+while open and the date changing at midnight. Going to the background tops up the wake chains.
 
 ## 6. Behaviour rules (decided with the owner — keep them)
 
@@ -156,11 +161,23 @@ the check-in reminders.
 - Timeline: change a time before it rings (debounced 1 s), New Time for ringing/in-progress/overdue tasks
   (never past midnight), Done / Skip, Undo / Unskip / Reopen, **Unlock Day** (keeps tasks finished during
   the day). Same-plan edits sync into a locked-in day (`DayStore.sync`).
-- **Check-in reminder:** 4 rings every `checkInReminderMinutes` after the wake time, today and tomorrow,
-  only while not locked in and only on days with something planned.
+- No separate check-in reminder any more (v1.0 had one; the owner decided the wake-up alarm should be the
+  thing that keeps ringing). Lock-in itself isn't nagged.
 
-**Alarms**
-- Wake-up: repeating AlarmKit alarms grouped by time per weekday; buttons Stop + Open.
+**Alarms** (decided Oct 2026 after the first real morning failed: keep AlarmKit, notifications only as a
+backup — notifications are silent in silent mode without Apple's critical-alert entitlement, ≤ 30 s, once)
+- **Wake-up chain:** every wake-up day (with or without tasks) rings at the wake time, then after 9, 7, 5 min,
+  then every 3 min up to 2 h (`WakeSchedule.ringOffsetMinutes`, 37 one-off `.fixed` alarms; no repeating
+  alarm). The next wake-up gets the whole chain, the one after 4 rings, the rest of the week 1 ring each
+  (`plannedRings`), topped up on every refresh/background; rings missing from iOS are re-added. Buttons
+  Stop + Open; no stop intent.
+- **Wake-up walk** (`WakeUpView`, full screen from the first ring until 30 min after the last, before any
+  task read screen): walk `wakeSteps` (default 30) counted live by `CMPedometer` (`NSMotionUsageDescription`),
+  then "I'm Up" → `AlarmService.confirmAwake` cancels that day's rings. No step counting / Motion denied →
+  stay on screen 60 s instead. Today's `WakeStatusBanner` always says the next wake-up (or off / not set in
+  iOS) and offers "Up already? Walk now" before today's wake time. No "still awake?" check (owner said no).
+- **Backup notifications** (`BackupNotifications`): a plain notification per wake ring and for each waiting
+  task's next 3 rings, synced by diff (prefix `backup-`); never asks permission itself.
 - **Task alarms:** each task gets a **chain of rings scheduled in advance**, one per snooze interval,
   covering ~1 h (3–12 rings), because iOS stops alarms on Stop/slide/physical buttons and the stop intent
   often doesn't run. When the stop intent does run, the chain is re-timed from now + snooze. Rings are

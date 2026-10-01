@@ -185,7 +185,6 @@ struct TodayTimelineView: View {
     private func unlockDay() {
         do {
             TaskActions.removed(taskKeys: try DayStore.unlock(date, in: modelContext))
-            alarms.updateCheckInReminders()
         } catch {
             errorText = error.localizedDescription
         }

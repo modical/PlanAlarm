@@ -25,11 +25,12 @@ struct ExpiryBanner: View {
     }
 }
 
-/// The banners shown at the top of Today: alarm permission and install expiry.
+/// The banners shown at the top of Today: alarm permission, the next wake-up, and install expiry.
 struct TodayBanners: View {
     var body: some View {
         VStack(spacing: 12) {
             AlarmPermissionBanner()
+            WakeStatusBanner()
             ExpiryBanner()
         }
     }

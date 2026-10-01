@@ -118,7 +118,7 @@ struct OnboardingView: View {
 
     private var wakePage: some View {
         OnboardingPage(icon: "sun.horizon", title: "Wake-up time",
-                       text: "A wake-up alarm starts your day with the morning check-in. You can set different times for single days in Settings.") {
+                       text: "The wake-up alarm keeps ringing until you get up and walk a few steps with your phone. Then you plan your day. You can set different times for single days in Settings.") {
             if let settings = settingsRecords.first {
                 WakeTimeEditor(settings: settings)
             }
@@ -157,9 +157,7 @@ struct OnboardingView: View {
     }
 
     private func finish(_ step: OnboardingNextStep) {
-        if let settings = settingsRecords.first {
-            alarms.applyWakeSchedule(settings.wakeSchedule)
-        }
+        alarms.rebuildWakeAlarms()
         onFinish(step)
     }
 }
