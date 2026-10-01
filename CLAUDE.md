@@ -1,186 +1,232 @@
-# PlanAlarm — notes for Claude
+# PlanAlarm — project guide for Claude
 
-Personal iOS app (single user, not for the App Store): alarm-grade daily plan reminders built on AlarmKit.
-The owner is a beginner on **Windows with no Mac**. Give simple numbered steps whenever they need to act,
-and say exactly what to reply afterwards.
+A personal iPhone app (one user, not for the App Store) that turns a daily plan (gym, stretches, study…)
+into reminders that ring like real alarms (AlarmKit): through silent mode and Focus, again and again,
+until the user opens the app and reads the task. Repo: https://github.com/modical/PlanAlarm (public).
 
-## Hard constraints
-- **No Mac, no local Xcode or Simulator.** All builds and tests run in GitHub Actions (`macos-26` runner).
-  Nothing counts as working until CI is green. Say explicitly what can only be checked on the physical iPhone.
-- **Free Apple ID.** CI produces an **unsigned** `PlanAlarm.ipa` artifact; the owner sideloads it with
-  Sideloadly on Windows (re-signs with the free Apple ID, expires after 7 days, reinstalled weekly).
-- Keep a later switch to a paid account + TestFlight small: signing settings plus one extra CI job.
-- **Bundle ID `com.habashi.planalarm` never changes** (reinstalling over it keeps the app's data).
-- iOS 26.0 deployment target. Swift 6, SwiftUI, AlarmKit, App Intents, SwiftData, UserNotifications (only for soft follow-ups).
-- Time zone: always use the device's local `TimeZone`/`Calendar` (owner is in Africa/Cairo, which has DST). Never hard-code offsets.
-- **Ask the owner first** before adding: app extensions (each uses a free-account App ID), entitlements,
-  App Groups, third-party dependencies. Currently: none of these.
-- **Never change the `.dayplan` schema without asking the owner.** Schema docs live in `docs/PLAN_FORMAT.md`.
-- Read Apple's current AlarmKit docs before writing AlarmKit code; don't guess API signatures.
+Read this whole file before changing anything. Keep it up to date when behaviour or structure changes.
 
-## Project layout
-- `project.yml` — XcodeGen spec (source of truth). The `.xcodeproj` is generated in CI and git-ignored.
-- `PlanAlarm/Info.plist` — extra Info.plist keys merged with the `INFOPLIST_KEY_*` build settings.
-- `PlanAlarm/App/` — app entry point and root tab view.
-- `PlanAlarm/Features/<Screen>/` — one folder per screen (Today, Plan, History, Settings, …).
-- `PlanAlarm/PlanFormat/` — `LocalDate`/`TimeOfDay`/`Weekday`, `Plan` models, `PlanParser` + `PlanValidator`
-  (JSON → located, human-readable errors), `DayResolution` (template + overrides), `UTType.dayplan`.
-- `PlanAlarm/Scheduling/` — **all AlarmKit code** (`@preconcurrency import AlarmKit` only here):
-  `AlarmService` (the single service: permission, wake-up alarms, task alarms, re-arming, debug tools),
-  `AlarmIntents` (LiveActivityIntents for the alarm buttons), `WakeSchedule` (pure logic),
-  `AlarmRegistry` (which AlarmKit alarm IDs belong to what; UserDefaults, since AlarmKit doesn't expose metadata).
-- `PlanAlarm/App/AppRouter.swift` — `presentedTaskKey`: a task pending acknowledgement is shown full screen.
-- `PlanAlarm/Persistence/AppDatabase.swift` — the one `ModelContainer`, shared with App Intents.
-  `AppSettings` (SwiftData, single record): wake-up schedule, snooze length.
-- `PlanAlarm/Persistence/` — SwiftData: `StoredPlan` (raw JSON + metadata; one active, the rest archived,
-  never deleted), `PlanStore` (activate + parsed-plan cache).
-- `PlanAlarm/Features/Import/` — `ImportController` (Open in / Files / paste / sample / new plan → sheets).
-- `PlanAlarm/Features/PlanEditing/` — `NewPlanView`, `TaskEditorView` (add a task to one date).
-- `PlanAlarm/PlanFormat/PlanEditing.swift` + `PlanEncoder.swift` — in-app edits stored as ordinary
-  weeklyTemplate entries / dateOverrides, then re-encoded to schema-v1 JSON. Scopes: `.thisDate` or
-  `.everyWeek` (add / edit / delete a task), plus clear day and reset day (remove the date's override).
-  A date with its own "replace" override keeps its tasks when the weekly pattern changes (except
-  "add every week" started from that date, which also appends there). `PlanStore.update` re-parses
-  before saving, so an unreadable plan is never stored.
-- `PlanAlarm/Features/TaskDetail/` — `TaskContentView`, the large-type task view (reuse for read-to-dismiss).
-- `PlanAlarm/Resources/` — asset catalog.
-- `Samples/sample-october.dayplan` — sample plan; bundled into the app via `project.yml` (single copy).
-- `docs/PLAN_FORMAT.md` — schema v1 documentation (written for AIs generating plans).
-- `Tests/PlanAlarmTests/` — Swift Testing unit tests (run on a simulator in CI). `SamplePlanTests` reads the
-  repo sample via `#filePath`.
+---
 
-## Conventions
-- Plan dates are `LocalDate` (pure Gregorian day math). Convert to/from `Date` only via `Calendar.plan`
-  (Gregorian, device time zone), so a phone set to another calendar or a DST day doesn't shift dates.
-- Plan interpretation decisions (documented in `docs/PLAN_FORMAT.md`): library entries must be complete tasks;
-  `replace` overrides drop the template's dayNote when they don't give one; `description.summary` and
-  `description.sections` override library values separately; unknown weekday keys are errors (typo guard);
-  `null` = missing; curly quotes in pasted text are repaired with a warning.
-- AlarmKit facts (checked against Apple's docs, Sep 2026):
-  - `AlarmPresentation.Alert(title:secondaryButton:secondaryButtonBehavior:)` is iOS 26.1+. The `stopButton:`
-    initializer is deprecated in 26.1 ("will no longer be used"): iOS draws its own Stop button. We use
-    `#available(iOS 26.1, *)` and fall back to the stop-label initializer on 26.0 ("Snooze N min").
-  - A widget extension is required only for countdown presentations. We use alert-only alarms and never
-    `secondaryButtonBehavior: .countdown`, so **no extension**.
-  - Apple's AlarmKit FAQ (developer.apple.com/forums/thread/797158): **every physical button stops** the
-    alerting alarm(s); slide-to-stop can't be removed. The stop intent is *supposed* to run on any dismissal,
-    but developers report it often doesn't (and on-device testing confirmed Stop didn't re-arm in build 11).
-  - `AlarmManager.alarms` is `get throws`; `Alarm` has no metadata, hence `AlarmRegistry`.
-  - Button intents must be `LiveActivityIntent`; they run in the app process. "Open" intents use
-    `supportedModes = .foreground(.immediate)`. `perform()` is nonisolated → hop via `AlarmService.handle…`.
-  - Info.plist needs `NSAlarmKitUsageDescription` (non-empty) or scheduling fails.
-  - Custom sounds: `AlertSound.named("file")` must be in the **app bundle** (Library/Sounds reportedly
-    doesn't play), **< 30 s**, and may play once per ring instead of looping. Tones: `Resources/Sounds/tone-*.wav`
-    (generated in-house, no third-party audio); `AlarmTone` enum; `.system` = `.default` (loops).
-- Task alarm design: each task gets a **chain of rings scheduled in advance** (one per snooze interval,
-  covering ~1 h, 3–12 rings; `AlarmRegistry.chainLength`), so however a ring is stopped the next one follows.
-  When `SnoozeTaskIntent` does run, the chain is re-timed from now + snooze. "Open task" stops the ring,
-  re-times, and opens the app. Only **Stop Alarm** in the app (after the unlock countdown: Settings
-  `stopUnlockSeconds`, default 30 s; a task's own readSeconds wins; runs only while in the foreground)
-  cancels the chain. `AlarmService.refresh()` (app active): cancels AlarmKit alarms not in the registry,
-  restores wake alarms, restarts chains that ran out.
-- `ExtraTask` (SwiftData): tasks the user adds on dates outside the plan or with no plan. Kept outside the
-  plan file (no schema change), so they survive plan replacement but aren't in shared `.dayplan` files.
-  `DayAgenda` = plan day tasks followed by that date's extras; later phases must schedule from `DayAgenda`.
-- Days: `DayRecord` (a locked-in date) + `TaskRecord` (one per task per day: snapshot of the task, chosen
-  time, `TaskStatus` scheduled → ringing → inProgress → done | skipped, or unlogged; timestamps; snooze count).
-  `DayStore` reads/writes them. A task's alarm-chain key is `TaskRecord.alarmKey` (its UUID string).
-- Morning check-in (`Features/CheckIn`): `CheckInPlanner` holds the rules (passed times → now + 15 min rounded
-  up to 5 min; overlap warnings by duration; blocking reasons). Today tab shows `CheckInView` until the date
-  has a `DayRecord`, then `TodayTimelineView`. Opening the app switches to Today until locked in.
-  Yesterday's unresolved tasks must be answered; older ones become `unlogged` automatically.
-  **Unlock Day** (`DayStore.unlock`): deletes the `DayRecord` and every record not resolved during the day
-  (done, or skipped after check-in), cancels their alarms; the check-in then leaves out already-finished titles.
-  Live plan updates: `CheckInPlanner.signature(of:)` detects changes; the check-in rebuilds with
-  `CheckInPlanner.merge` (keeps chosen times/skips by title); a locked-in day runs `DayStore.sync`
-  (adds new tasks at their time or "Needs a time", removes open tasks gone from the day, keeps finished ones).
-  Timeline: Undo/Unskip/Reopen (`DayStore.undo`), New Time (`DayStore.reschedule`) for ringing,
-  in-progress or overdue tasks. "Needs a time" = scheduled, time nil or past, and no alarm chain.
-- Check-in reminder (skipped on days with nothing planned; refreshed on activation and when the app goes to
-  the background): `AlarmService.updateCheckInReminders()` keeps 4 rings (every `checkInReminderMinutes`
-  after that day's wake time) for today and tomorrow while not locked in; `registry.checkInChains`.
-- `AlarmRegistry` decodes missing fields as empty (custom `init(from:)`): **add new fields there too**, or a
-  missing key would wipe the registry and the orphan clean-up would cancel every alarm.
-- **Never put `LazyVGrid`/`LazyHGrid` inside a `List` row**: it sent UIKit's list layout into a loop
-  (UICollectionView assertion, SIGTRAP) on a 440-pt iPhone (build 19 History crash). Use plain stacks.
-  `ScreenSmokeTests` opens every tab at six iPhone widths and switches tabs; add new screens there.
-- Swift 6 gotcha: don't build `Binding(get:set:)` from a stored callback property (Sendable warning); marking
-  the callback `@MainActor` crashed the Swift 6.2 compiler in Xcode 26.6. Use local `@State` + `.onChange`.
-- Scheduling: `AlarmService.scheduleTaskAlarms` schedules rings **ring by ring across tasks** (all first rings,
-  then all second rings…), so hitting iOS's alarm limit costs backups, never a task's only alarm; just-passed
-  times ring in 5 s. On every activation `TaskActions.reconcile()` runs before `AlarmService.refresh()`:
-  stops chains of earlier days' tasks (they go to "Did you do these?"), of finished/in-progress/deleted tasks,
-  and restores missing alarms for today's scheduled tasks (TaskRecords are the source of truth).
-- The bundled sample plan is moved by whole weeks to cover today when loaded (`Plan.movedToCover`).
-- History: a no-check-in day with nothing planned (per the active plan + extras) is a rest day, not missed.
-- Read screen (`TaskAlarmView`): countdown (foreground only), then Starting Now / Reschedule / Skip Today,
-  each of which stops the alarm. **All task state changes go through `TaskActions`** (Features/Shared) so
-  `TaskRecord`s, alarm chains and follow-ups stay in step. Follow-up (`Notifications/FollowUpService`):
-  local notification at start + duration (or +60 min), category with Done / Skipped actions handled by
-  `NotificationDelegate` (set in `AppDelegate`, so it works when the app was not running). Settings
-  `followUpEnabled`. Notification permission is asked the first time a follow-up is needed.
-- History (`Features/History`): `HistoryCalculator` holds all rules (day kinds, perfect-day and category
-  streaks, completion windows, month grid), fed by `HistoryDay.days(dayRecords:taskRecords:)`. Decisions:
-  today never breaks a streak until complete; a past day without a check-in (after the first one) is
-  "missed": it breaks the perfect-day streak, and category streaks ignore it. Categories compare
-  case-insensitively. Export: `HistoryExport` (JSON, ISO-8601 dates) via `HistoryExportFile` share sheet.
-- Expiry (`App/AppExpiry.swift`): ExpirationDate from `embedded.mobileprovision` (plist cut out of the CMS
-  blob), else app-folder creation date + 7 days. `AlarmService.updateExpiryReminder()` (on every activation)
-  keeps one alarm at 20:00 the evening before (`registry.expiryReminder`). `ExpiryBanner` on Today < 48 h.
-  Sideloadly appends the team ID to the bundle ID (e.g. `com.habashi.planalarm.J4V38G56NA`); data survives
-  reinstalls only with the same Apple ID.
-- Onboarding (`Features/Onboarding`): shown on first launch unless plans/history exist (`hasCompletedOnboarding`
-  AppStorage; Settings → Show Welcome Screens Again). Plan sheets open after it closes (`OnboardingNextStep`).
-- **Plan lifecycle rules (owner, v1.0 follow-up):**
-  - **Past days never change** with the plan (load, edit, replace, delete). A past day is its `DayRecord` +
-    `TaskRecord`s; the Plan tab shows recorded past days as recorded ("Checked in" / "No check-in") and only
-    allows **deleting a task by hand** (`DayStore.deleteRecord`, also in History's day view). Past dates can't
-    be planned (no Add/Edit/Clear/Reset before today).
-  - `DayStore.recordDaysWithoutCheckIn(before:)` (on activation, at midnight, in the check-in) records each
-    day since the last recorded one that passed without a check-in, from the plan in effect
-    (`DayRecord.checkedIn = false`): yesterday's tasks stay `.scheduled` (asked in "Did you do these?"), older
-    ones `.unlogged`. History: such a day with nothing done is "missed"; with no tasks, a rest day.
-  - **A locked-in day follows only its own plan** (`DayRecord.planKey`, `follows(_:)`): loading another plan or
-    deleting the plan leaves today's tasks/alarms (`DayStore.sync(extrasOnly: true)`); Unlock Day switches.
-  - Loading a plan whose start passed: `PlanStartChoice` — continue it (`Plan.continuing(from:)`, earlier
-    days skipped) or start from day 1 (`Plan.restarting(on:)`), on today / tomorrow / a chosen date.
-  - Archived plans: "Use This Plan Again" goes through the same preview (`ImportController.reuse`).
-- Plans can be deleted (active or archived). So history (phases 5–6) must **snapshot** task data
-  (title, category, times) in its own records and must never depend on a `StoredPlan` still existing.
+## 1. The owner and how to work with them
 
-## CI (`.github/workflows/build.yml`)
-Runs on push to `main`, on `v*` tags, and on manual dispatch; skips doc-only changes (`**.md`, `docs/**`).
-Steps: select Xcode (pinned by `XCODE_VERSION`, fails clearly if missing) → install XcodeGen (cached) →
-`xcodegen generate` → `xcodebuild test` on an iOS 26 iPhone simulator → unsigned Release archive →
-package `Payload/PlanAlarm.app` into `PlanAlarm.ipa` → upload artifact (and attach to a Release on tags).
-`CURRENT_PROJECT_VERSION` is set to the GitHub run number.
+- **Beginner, on Windows, no Mac.** Explain in plain words. Whenever they must do something (install,
+  tap through iPhone settings, test on the phone), give **short numbered steps** and end with
+  **exactly what to reply** (a fill-in list works well).
+- Lives in **Egypt (Africa/Cairo, has DST)**, phone language English, **iPhone 16 Pro Max (440 pt wide)**,
+  iOS 26.x. Tests by sideloading on that phone.
+- **Tell them whenever the conversation has been compacted/summarized** (they asked explicitly).
+- **Ask first** before: app extensions, entitlements, App Groups, third-party dependencies, or **any change
+  to the `.dayplan` schema**. Today the project has none of the first four.
+- Show results honestly: nothing is "working" until CI is green, and say clearly what can only be verified
+  on the physical iPhone (alarms ringing, notifications, Sideloadly installs).
+- They like concrete before/after explanations of bugs, and being asked when a rule is ambiguous
+  (use the question tool with clear options).
 
-On this Windows machine `gh` may not be on PATH in the agent shell; use `"C:\Program Files\GitHub CLI\gh.exe"`.
-- Trigger: `gh workflow run build.yml --ref main`
-- Watch: `gh run watch <run-id> --exit-status` (list with `gh run list --workflow build.yml`)
-- Failure logs: `gh run view <run-id> --log-failed`
-- Download IPA: `gh run download <run-id> -n PlanAlarm-build-<run-number>`
+## 2. Current status (Oct 2026)
 
-## Phased workflow
-After each phase: commit, push, get a green CI run, then summarise what works and what to test on the phone.
-1. **Skeleton + CI** — XcodeGen project, four empty tabs, unsigned IPA from CI. *(done, sideload confirmed)*
-2. **Plan format** — models, parser, validator, day resolution, import (file / Open in / paste), preview, sample plan, `docs/PLAN_FORMAT.md`, tests. *(done in build 7)*
-   **2b. Plan editing** (owner request) — add / edit / delete tasks for one date or every week, clear day,
-   reset day, new empty plan, delete active/archived plans, share plan as `.dayplan`.
-   *(done in build 9)*
-3. **AlarmKit core** — permissions, wake-up alarm, one test task alarm with stop-rearms / open-task behaviour,
-   hidden debug tools (Settings → tap "Build" 7×). Build 11 tested on the phone: Stop didn't snooze.
-   **3b. Owner feedback** — backup-ring chains, Stop Alarm unlock timer, alarm tones, tasks on any day.
-   *(done in build 12 — waiting for on-device tests)*
-4. **Morning check-in** + scheduling, re-alarm, passed-time handling, Today timeline.
-   *(done in build 15; Unlock Day in 16; undo, new time and live plan updates in 17 — waiting for on-device tests)*
-5. **Read-to-dismiss**, statuses, follow-up notifications. *(done in build 18 — waiting for on-device tests)*
-6. **History and streaks** (+ edge-case tests: rest days, skips, plan changes, DST). *(done in build 19; History crash on wide iPhones fixed in build 23 — waiting for on-device tests)*
-7. **Expiry protection**, onboarding, settings polish, README. *(done in build 24 — waiting for on-device tests)*
+- **v1.0 released** (tag `v1.0`, GitHub Release with `PlanAlarm.ipa`).
+- `main` is ahead of v1.0 with the **plan-lifecycle changes** (build 28, 143/143 tests green): frozen past
+  days, today keeps its lock-in when the plan changes, start-date choice for late plans, "Use This Plan
+  Again", recording days without a check-in. Not yet released (owner wants more changes first; when
+  ready, release as v1.1).
+- **On-device testing is far behind.** Confirmed on the phone: sideload works (build 1), Stop didn't snooze
+  (build 11, fixed by backup-ring chains), History crash (build 19, fixed in 23). Everything after build 12
+  is **untested on the phone**: backup rings vs slide/side/volume buttons, tones, check-in + reminders,
+  read screen + follow-ups, history, expiry reminder, onboarding, plan lifecycle.
+- **Owner's future plans** (separate conversation): rebrand / new name, a paid Apple Developer account
+  (removes the 7-day expiry; README §11 has the TestFlight job), more user-friendly UX.
 
-## Releases
-- **v1.0** (tag `v1.0`, GitHub Release with `PlanAlarm.ipa`): all 7 phases plus a full review pass
-  (scheduling order, reconcile on activation, history rest days, pickers, sample dates). Version is
-  `MARKETING_VERSION` in `project.yml`; release by pushing a `v*` tag (CI attaches the IPA).
-- Planned later (owner): rebranding / new name, a paid Apple developer account (fixes the 7-day expiry;
-  see README §11 — note a new bundle ID means a separate app, so export history first), and UX polish.
+## 3. Hard constraints
+
+- **No Mac, no local Xcode, no Simulator.** Every build and test runs in GitHub Actions (`macos-26`
+  runner, Xcode **26.6** pinned). You can't compile locally: write carefully, push, read CI logs, fix.
+- **Free Apple ID.** CI produces an **unsigned** `PlanAlarm.ipa`; the owner installs it with **Sideloadly**
+  on Windows, which re-signs it. Installs **expire after 7 days**; the owner reinstalls weekly over the
+  existing app (same Apple ID, don't delete) so data is kept.
+- **Bundle ID `com.habashi.planalarm` never changes.** (Sideloadly appends the team ID, e.g.
+  `com.habashi.planalarm.J4V38G56NA`; stable as long as the same Apple ID is used.) A rebrand may change
+  the *display name* (`INFOPLIST_KEY_CFBundleDisplayName` in `project.yml`) freely, but a new bundle ID
+  is a **separate app with no data**: export history first and discuss with the owner.
+- iOS **26.0** deployment target; Swift 6 (strict concurrency), SwiftUI, AlarmKit, App Intents, SwiftData,
+  UserNotifications (only for the soft "Did you finish?" follow-up). No third-party code.
+- **Time:** always the device's time zone via `Calendar.plan`; never hard-code offsets.
+- Read Apple's current docs before writing AlarmKit (or other new-API) code; don't guess signatures.
+  Apple's doc pages are fetchable as JSON: `https://developer.apple.com/tutorials/data/documentation/<path>.json`.
+
+## 4. Development workflow
+
+1. Edit files on Windows (`E:\user\Documents\PlanAlarm`). Git stores LF line endings (`.gitattributes`).
+2. Commit (end messages with the attribution line the harness gives you) and push to `main`.
+3. CI (`.github/workflows/build.yml`) runs on push to `main`, on `v*` tags, and manual dispatch. It skips
+   doc-only pushes (`**.md`, `docs/**`). Steps: select Xcode → XcodeGen (cached) → `xcodegen generate` →
+   `xcodebuild test` on an iOS 26 iPhone simulator (fails if 0 tests ran; failing tests appear as
+   annotations) → unsigned Release archive → `PlanAlarm.ipa` artifact `PlanAlarm-build-<run number>` →
+   on `v*` tags, a GitHub Release with the IPA. `CURRENT_PROJECT_VERSION` = run number (shown in Settings).
+4. `gh` isn't on PATH in the agent shell; use `"/c/Program Files/GitHub CLI/gh.exe"` (Bash) or
+   `& "C:\Program Files\GitHub CLI\gh.exe"` (PowerShell), with `-R modical/PlanAlarm`.
+   - Latest run: `gh run list -R modical/PlanAlarm --workflow build.yml --limit 1 --json databaseId,number,conclusion`
+   - Wait: `gh run watch <id> -R modical/PlanAlarm --exit-status --interval 30`
+   - Test counts: `gh run view <id> --log | grep "Test summary" | grep -E '"(totalTestCount|passedTests|failedTests)"'`
+   - Failures: `gh run view <id> --log-failed | grep -E "error:"` and the ANNOTATIONS in `gh run view <id>`
+   - Warnings: grep the log for `warning:` (keep the app at zero warnings).
+5. A build takes ~5–8 min. Give the owner the run URL
+   `https://github.com/modical/PlanAlarm/actions/runs/<id>` → Artifacts → `PlanAlarm-build-NN`.
+6. **Release:** bump `MARKETING_VERSION` in `project.yml`, push, then `git tag -a vX.Y -m ...` and push the
+   tag; CI creates the Release. Replace the auto notes with a plain-language summary
+   (`gh release edit vX.Y --notes-file …`). Only release when the owner asks.
+7. Crash reports from the phone: iPhone Settings → Privacy & Security → Analytics & Improvements →
+   Analytics Data → `PlanAlarm-…ips` → Share. Reproduce in `ScreenSmokeTests` before fixing.
+
+## 5. Architecture
+
+```
+PlanAlarm/
+  App/            PlanAlarmApp (+AppDelegate: notification delegate), RootView (tabs, sheets, read-screen
+                  cover, onboarding cover, app-activation sequence), AppRouter, AppExpiry
+  PlanFormat/     LocalDate/TimeOfDay/Weekday + Calendar.plan, Plan models, JSONValue, PlanParser +
+                  PlanValidator, DayResolution, PlanEditing (edits, continuing/restarting/shifted),
+                  PlanEncoder, UTType.dayplan
+  Persistence/    AppDatabase (the one ModelContainer), StoredPlan + PlanStore, AppSettings, ExtraTask +
+                  DayAgenda, DayRecords (DayRecord, TaskRecord, TaskStatus, DayStore), HistoryExport,
+                  DayPlanFile (share a plan)
+  Scheduling/     ALL AlarmKit code: AlarmService, AlarmIntents, AlarmRegistry, WakeSchedule, AlarmTone
+  Notifications/  FollowUpService + NotificationDelegate
+  Features/       CheckIn, Today, TaskAlarm (read screen), TaskDetail, Plan, PlanEditing, Import,
+                  History, Settings, Onboarding, Shared (TaskActions, banners, Formatting)
+  Resources/      Assets (icon), Sounds/tone-*.wav (generated in-house)
+Samples/sample-october.dayplan   bundled into the app via project.yml (single copy)
+docs/PLAN_FORMAT.md              the .dayplan schema v1, written for AIs that generate plans
+Tests/PlanAlarmTests/            Swift Testing, hosted in the app, run in CI
+project.yml                      XcodeGen spec (source of truth; .xcodeproj is generated, git-ignored)
+PlanAlarm/Info.plist             extra keys (UTType export, document types, NSAlarmKitUsageDescription…)
+```
+
+**Data model (SwiftData, one container):**
+- `StoredPlan` — imported/created plans as raw JSON + metadata; exactly one `isActive`, others archived.
+  `PlanStore.plan(for:)` parses (cached by JSON). `PlanStore.update` re-encodes and re-parses before saving.
+- `ExtraTask` — tasks added in the app on dates outside the plan / with no plan (not in the plan file).
+- `DayAgenda` — a date's plan tasks followed by its extras. `DayAgenda.current(on:)` reads the database.
+- `DayRecord` — a recorded day: `checkedIn` (false = recorded afterwards), `planKey` (plan it was locked in
+  with), dayNote, planName, lockedInAt. `TaskRecord` — one task on one day: snapshot of the task (JSON),
+  title/category, `TaskStatus` (scheduled → ringing → inProgress → done | skipped, or unlogged), chosen time,
+  timestamps, snooze count, `alarmKey` (= its UUID string). **History and past days come only from these.**
+- `AppSettings` (single record): wake schedule (enabled, time, per-weekday rules), snooze minutes,
+  stopUnlockSeconds (read time), task/wake tones, check-in reminder (on, minutes), follow-up on.
+- `AlarmRegistry` (UserDefaults, not SwiftData): which AlarmKit alarm IDs belong to what (task ring chains,
+  wake alarms, check-in chains, expiry reminder, test alarms). AlarmKit exposes no metadata.
+
+**One door for task changes:** every task state change goes through `TaskActions` (Features/Shared), which
+keeps `TaskRecord`s, alarm chains (AlarmService) and follow-ups (FollowUpService) in step.
+
+**App activation sequence (RootView):** `DayStore.recordDaysWithoutCheckIn` → switch to Today if not locked
+in → `TaskActions.reconcile()` → `AlarmService.refresh()` (orphan clean-up, wake alarms, chains that ran out,
+check-in + expiry reminders) → mark ringing tasks → show a waiting task's read screen. A 15-s loop also
+catches alarms going off while open and the date changing at midnight. Going to the background refreshes
+the check-in reminders.
+
+## 6. Behaviour rules (decided with the owner — keep them)
+
+**Plan format** (`docs/PLAN_FORMAT.md`; schema changes need the owner's OK)
+- Library entries must be complete tasks; `replace` overrides drop the template dayNote unless they give
+  one; `description.summary`/`sections` override library values separately; unknown weekday keys are errors;
+  `null` = missing; unknown fields ignored; curly quotes in pasted text repaired with a warning.
+- In-app edits (one date or every week, clear/reset day) are written back as ordinary weeklyTemplate
+  entries / dateOverrides. A date with its own "replace" override keeps its tasks when the weekly pattern
+  changes (except "add every week" started from that date).
+- The bundled sample is moved by whole weeks to cover today when loaded (`Plan.movedToCover`).
+
+**Plan lifecycle**
+- **Past days never change** when plans are loaded, edited, replaced or deleted. The Plan tab shows recorded
+  past days as recorded ("Checked in" / "No check-in"); the **only** change allowed is deleting a task by hand
+  (swipe → confirm; Plan tab and History day view; `DayStore.deleteRecord`). Past dates can't be planned.
+- Days that pass without a check-in are recorded the next time the app opens, from the plan in effect
+  (`recordDaysWithoutCheckIn`): yesterday's tasks stay open (asked in "Did you do these?"), older → unlogged.
+- **A locked-in day follows only edits to its own plan** (`DayRecord.follows`); another plan or a deleted
+  plan leaves today's tasks and alarms (`DayStore.sync(extrasOnly: true)`); Today explains; Unlock Day switches.
+- A plan whose start date has passed: the preview offers **Continue it** (`Plan.continuing(from:)`) or
+  **Start from day 1** (`Plan.restarting(on:)`) on today / tomorrow / a picked date (`PlanStartChoice`).
+- Replacing archives the old plan (never deleted automatically); archived plans have "Use This Plan Again".
+
+**Morning check-in and Today**
+- Today shows `CheckInView` until the date has a `DayRecord`, then `TodayTimelineView`. Opening the app
+  goes to Today until locked in. Tasks without a time need "Set time" or "Skip today"; passed times move to
+  now + 15 min (rounded up to 5 min) and are highlighted; overlaps warn. Yesterday's open tasks must be
+  answered first. Lock In re-checks times. Plan changes show up live (`CheckInPlanner.signature` / `merge`).
+- Timeline: change a time before it rings (debounced 1 s), New Time for ringing/in-progress/overdue tasks
+  (never past midnight), Done / Skip, Undo / Unskip / Reopen, **Unlock Day** (keeps tasks finished during
+  the day). Same-plan edits sync into a locked-in day (`DayStore.sync`).
+- **Check-in reminder:** 4 rings every `checkInReminderMinutes` after the wake time, today and tomorrow,
+  only while not locked in and only on days with something planned.
+
+**Alarms**
+- Wake-up: repeating AlarmKit alarms grouped by time per weekday; buttons Stop + Open.
+- **Task alarms:** each task gets a **chain of rings scheduled in advance**, one per snooze interval,
+  covering ~1 h (3–12 rings), because iOS stops alarms on Stop/slide/physical buttons and the stop intent
+  often doesn't run. When the stop intent does run, the chain is re-timed from now + snooze. Rings are
+  scheduled **ring by ring across tasks** (all first rings first), so hitting iOS's alarm limit never leaves
+  a task with no alarm; times that just passed ring in 5 s.
+- Buttons: iOS's own Stop (can't be relabelled on 26.1+; on 26.0 it shows "Snooze N min") + "Open task".
+- **Read screen** (`TaskAlarmView`, full screen whenever a task is waiting): whole task in large type,
+  countdown (`stopUnlockSeconds`, default 30 s; a task's own readSeconds wins; foreground only), then
+  **Starting Now / Reschedule / Skip Today**, each of which stops the chain.
+- **Follow-up:** "Did you finish …?" notification at start + duration (or +60 min) with Done/Skipped buttons
+  (work with the app closed). Permission is asked the first time it's needed.
+- **Reconcile** (every activation): stops chains of earlier days' tasks and of finished/in-progress/deleted
+  tasks; restores missing alarms for today's scheduled tasks (TaskRecords are the source of truth).
+- Tones: iPhone default (loops) or 5 bundled tones (< 30 s, may play once per ring).
+
+**History**
+- Calendar colours: all done / partly / nothing / rest day / today in progress / "No check-in" (missed).
+  A day recorded without a check-in with nothing done is "missed"; with no tasks it's a rest day.
+- Perfect-day streak: every task done; skipped/unlogged tasks and missed days break it; rest days are
+  neutral; today counts only once complete. Category streaks: days the category was scheduled and fully
+  done; days without it are ignored. Categories compare case-insensitively. 7/30-day completion excludes
+  today's open tasks. Export = JSON (built only when shared).
+
+**Expiry (free Apple ID)**
+- `AppExpiry`: ExpirationDate from `embedded.mobileprovision` (plist cut out of the CMS blob), else app
+  folder creation date + 7 days. "Reinstall PlanAlarm" alarm at 20:00 the evening before; banner on Today
+  under 48 h; shown in Settings → App.
+
+**Onboarding:** first launch only (skipped when plans/history exist); Settings → Show Welcome Screens Again.
+Hidden debug tools: tap "Build" in Settings 7 times.
+
+## 7. AlarmKit facts (checked against Apple's docs and forums, Sep 2026)
+
+- `AlarmPresentation.Alert(title:secondaryButton:secondaryButtonBehavior:)` is iOS 26.1+; the `stopButton:`
+  initializer is deprecated in 26.1 ("will no longer be used"). Use `#available(iOS 26.1, *)`.
+- A **widget extension is required only for countdown presentations**; we use alert-only alarms and never
+  `.countdown`, so there's no extension.
+- AlarmKit FAQ (developer.apple.com/forums/thread/797158): every physical button stops alerting alarms;
+  slide-to-stop can't be removed; the stop intent should run on dismissal but often doesn't in practice.
+- `AlarmManager.alarms` is `get throws`; `Alarm` has no metadata. `NSAlarmKitUsageDescription` must be set.
+- Button intents must be `LiveActivityIntent` (run in the app process); "open" intents use
+  `supportedModes = .foreground(.immediate)`; `perform()` is nonisolated → hop to `AlarmService.handle…`.
+- Custom sounds: `AlertSound.named(file)` from the **app bundle** only (Library/Sounds reportedly doesn't
+  play), < 30 s, may not loop.
+
+## 8. Lessons learned / gotchas
+
+- **Never put `LazyVGrid`/`LazyHGrid` inside a `List` row** — UIKit's list layout loops and the app
+  crashes (SIGTRAP) on some widths (the build-19 History crash). Use plain stacks.
+- `ScreenSmokeTests` opens every tab at six iPhone widths and switches tabs: **add new screens there**.
+- Swift 6 / Xcode 26.6: don't build `Binding(get:set:)` from a stored callback property (Sendable warning);
+  marking that callback `@MainActor` **crashed the compiler**. Use local `@State` + `.onChange`/`.task(id:)`.
+- `AlarmRegistry` has a custom `init(from:)` that defaults missing keys: **add every new field there**,
+  or old saved data fails to decode → empty registry → the orphan clean-up cancels every alarm.
+- SwiftData model changes: only add properties **with default values** (lightweight migration).
+- Swift pitfalls hit before: `let x = x` shadowing a property; a local named like a method used on the line
+  before it; destructuring a key/value pair in a `ForEach` closure; `switch await …`; type-checker timeouts
+  on long `min(...)`/closure chains (split them); `static let` on a `@MainActor` type used from tests needs
+  `nonisolated`.
+- Floating-point dates: compare intervals with a tolerance in tests.
+- Avoid `rm` of paths outside the repo/scratchpad (a safety check blocks it).
+
+## 9. Tests
+
+Swift Testing in `Tests/PlanAlarmTests/` (hosted in the app; `@MainActor` suites for SwiftData; in-memory
+`ModelContainer`s). Pure logic lives in testable types: `PlanValidator`, `DayResolution`, `PlanEditing`,
+`CheckInPlanner`, `PlanStartChoice`, `HistoryCalculator`, `WakeSchedule`, `AlarmRegistry`, `AppExpiry`,
+`DayStore`. AlarmKit itself can't be exercised in the simulator. Use Cairo's DST days (2026-04-24, 23 h;
+2026-10-29, 25 h) for date edge cases. `SamplePlanTests` reads the repo sample via `#filePath`.
